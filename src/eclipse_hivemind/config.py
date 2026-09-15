@@ -1,7 +1,6 @@
 import yaml
-import argparse
-import sys
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from typing import Literal
 
@@ -124,6 +123,15 @@ def parse_config(text: str) -> ExperimentConfig:
     except ValidationError as e:
         raise ConfigValidationError(f"Invalid configuration:\n{e}") from e
 
+
+def parse_config_file(path: str | Path) -> ExperimentConfig:
+    """Load and validate a YAML configuration file."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError as e:
+        raise ConfigError(f"Could not read configuration file '{path}': {e}") from e
+    return parse_config(text)
+
 def load_yaml(text: str) -> dict:
     """Parse YAML text into a dict. Raises ConfigSyntaxError on bad YAML."""
     try:
@@ -134,30 +142,3 @@ def load_yaml(text: str) -> dict:
     if not isinstance(data,dict):
         raise ConfigSyntaxError
     return data
-
-def main():
-
-    p = argparse.ArgumentParser()
-    p.add_argument("--config-path",type=str,required=True,help="Path to YAML file")
-
-    args = p.parse_args()
-
-    with open(args.config_path, "r", encoding="utf-8") as f:
-        raw = f.read()
-
-    try:
-        config = parse_config(raw)
-        print("YAML configuration successfully loaded and validated!")
-        print(f"{'Experiment Name:':<20}{config.experiment.name}")
-        print(f"{'Total Nodes:':<20}{config.total_nodes()}")
-        print(f"{'Active Nodes:':<20}{list(config.node_types_with_nodes().keys())}")
-        for node_type, node_config in config.node_types.items():
-            label = f"{node_type.title()} Nodes:"
-            print(f"{label:<20}{node_config.count}")
-        print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
-    except ConfigError as err:
-        print(f"Configuration Error: {err}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()

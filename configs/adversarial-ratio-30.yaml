@@ -1,9 +1,9 @@
 schema_version: 1
 
 experiment:
-  name: test-run
-  seed: 12345
-  rounds: 10
+  name: adversarial-ratio-30
+  seed: 42
+  rounds: 50
 
 aggregator:
   endpoint: http://aggregator:8080
@@ -16,7 +16,11 @@ bootstrap:
 
 node_types:
   normal:
-    count: 2
+    count: 7
+    image: hivemind-node:latest
+  adversarial:
+    count: 3
     image: hivemind-node:latest
     parameters:
-      strategy: none
+      strategy: eclipse
+      target_prefix: "expert."
