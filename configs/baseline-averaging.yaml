@@ -1,0 +1,17 @@
+schema_version: 1
+
+experiment:
+  name: baseline-averaging
+  seed: 1
+  rounds: 50
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  policy: full
+
+node_types:
+  normal:
+    count: 3
+    image: hivemind-node:latest
