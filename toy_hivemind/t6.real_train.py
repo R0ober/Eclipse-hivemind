@@ -53,10 +53,13 @@ with tqdm(range(args.steps)) as progressbar:
             epoch_info = getattr(opt, 'local_epoch', step + 1)
             weight = model.weight.item()
             bias = model.bias.item()
-            print(f"\nStep {step + 1} | Epoch: {epoch_info} | Loss: {loss.item():.4f} | Weight: {weight:.3f}, Bias: {bias:.3f}")
+            tqdm.write(f"Step {step + 1} | Epoch: {epoch_info} | Loss: {loss.item():.4f} | Weight: {weight:.3f}, Bias: {bias:.3f}")
 
         if args.sleep:
-            time.sleep(args.sleep)  ## trains to fast add sleep so other clients can join 
+            time.sleep(args.sleep)  ## trains too fast, add sleep so other clients can join 
 
 opt.shutdown()
 dht.shutdown()
+
+
+## averging happens when we hit  target_batch_size=256,
