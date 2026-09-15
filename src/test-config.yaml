@@ -1,0 +1,22 @@
+schema_version: 1
+
+experiment:
+  name: test-run
+  seed: 12345
+  rounds: 10
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+node_types:
+  normal:
+    count: 2
+    image: hivemind-node:latest
+    parameters:
+      strategy: none
