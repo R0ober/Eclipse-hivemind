@@ -27,10 +27,10 @@ bootstrap:
 node_types:
   normal:
     count: 7
-    image: hivemind-node:latest
+    image: alpine:3.20
   adversarial:
     count: 3
-    image: hivemind-node:latest
+    image: alpine:3.20
     parameters:
       strategy: eclipse
       target_prefix: "expert."

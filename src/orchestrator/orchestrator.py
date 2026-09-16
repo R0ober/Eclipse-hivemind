@@ -9,6 +9,7 @@ from collections.abc import Iterator
 
 from eclipse_hivemind.config import ExperimentConfig
 from .backend import ContainerBackend
+from .env import build_node_env 
 
 AGGREGATOR_IMAGE = "alpine:3.20"
 AGGREGATOR_COMMAND = ["sleep", "infinity"]
@@ -26,7 +27,6 @@ def run(
     run_id: str | None = None,
 ) -> Iterator[tuple[str, str]]:
     """Create the run network, yield its ID, and remove it on exit."""
-    del config
     run_id = run_id or _new_run_id()
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}
@@ -44,7 +44,28 @@ def run(
         )
         created_containers.append(aggregator_id)
         backend.start(aggregator_id)
+## start our nodes 
+        for node_type_name, node_type_config in config.node_types.items():
+            for node_index in range(node_type_config.count):
+                node_env = build_node_env(
+                    config=config,
+                    run_id=run_id,
+                    node_type_name=node_type_name,
+                    node_index=node_index,
+                    initial_peers=[],
+                )
 
+                container_id = backend.create_container(
+                    image=node_type_config.image,
+                    name=f"{run_id}-{node_type_name}-{node_index}",
+                    network=network_id,
+                    env=node_env,
+                    labels=labels,
+                    command=AGGREGATOR_COMMAND,
+                )
+
+                created_containers.append(container_id)
+                backend.start(container_id)
         yield network_id, aggregator_id
     finally:
         for container_id in reversed(created_containers):
@@ -54,3 +75,6 @@ def run(
                 backend.remove_container(container_id)
         with contextlib.suppress(Exception):
             backend.remove_network(network_id)
+
+
+
