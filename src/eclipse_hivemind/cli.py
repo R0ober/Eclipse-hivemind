@@ -2,6 +2,8 @@ import argparse
 import sys
 
 from .config import ConfigError, parse_config_file
+from orchestrator.docker_backend import DockerBackend
+from orchestrator import orchestrator
 
 
 def main() -> None:
@@ -24,7 +26,12 @@ def main() -> None:
         print(f"{label:<20}{node_config.count}")
     print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
 
-## HAND OF TO ORCHESTRATOR HERE 
+    try:
+        with orchestrator.run(config, DockerBackend()) as network_id:
+            print(f"{'Docker Network:':<20}{network_id}")
+    except Exception as err:
+        print(f"Docker Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
