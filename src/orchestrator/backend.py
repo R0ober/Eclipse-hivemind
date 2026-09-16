@@ -20,6 +20,7 @@ class ContainerBackend(Protocol):
         env: dict[str, str],
         labels: dict[str, str],
         volumes: dict | None = None,
+        command: list[str] | str | None = None,
     ) -> str: ...
 
     def start(self, container_id: str) -> None: ...

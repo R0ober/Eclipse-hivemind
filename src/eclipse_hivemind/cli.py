@@ -27,8 +27,9 @@ def main() -> None:
     print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
 
     try:
-        with orchestrator.run(config, DockerBackend()) as network_id:
+        with orchestrator.run(config, DockerBackend()) as (network_id, aggregator_id):
             print(f"{'Docker Network:':<20}{network_id}")
+            print(f"{'Aggregator:':<20}{aggregator_id}")
     except Exception as err:
         print(f"Docker Error: {err}")
         sys.exit(1)

@@ -26,6 +26,7 @@ class DockerBackend(ContainerBackend):
         env: dict[str, str],
         labels: dict[str, str],
         volumes: dict | None = None,
+        command: list[str] | str | None = None,
     ) -> str:
         options = {
             "image": image,
@@ -37,6 +38,8 @@ class DockerBackend(ContainerBackend):
         }
         if volumes is not None:
             options["volumes"] = volumes
+        if command is not None:
+            options["command"] = command
 
         container = self._client.containers.create(**options)
         return container.id
