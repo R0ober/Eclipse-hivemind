@@ -8,6 +8,16 @@ experiment:
 aggregator:
   endpoint: http://aggregator:8080
 
+startup:
+  phases:
+    - name: honest-network
+      node_types:
+        - normal
+      wait_after_seconds: 120
+    - name: adversarial-nodes
+      node_types:
+        - adversarial
+
 bootstrap:
   seeds:
     node_type: normal

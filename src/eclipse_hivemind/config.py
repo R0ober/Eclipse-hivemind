@@ -48,17 +48,28 @@ class NodeType(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class StartupPhase(BaseModel):
+    name: str = Field(min_length=1)
+    node_types: list[str] = Field(min_length=1)
+    wait_after_seconds: StrictInt = Field(default=0, ge=0)
+
+
+class Startup(BaseModel):
+    phases: list[StartupPhase] = Field(default_factory=list)
+
+
 class ExperimentConfig(BaseModel):
     """Top-level resolved config. This is the public interface."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[*SUPPORTED_SCHEMA_VERSIONS]  
+    schema_version: Literal[1]
 
     experiment: Experiment
     aggregator: Aggregator
     node_types: dict[str, NodeType]
     bootstrap: Bootstrap = Field(default_factory=Bootstrap)  
+    startup: Startup = Field(default_factory=Startup)
 
 # Runs before validation of fields above  
     @model_validator(mode="before")
@@ -105,6 +116,14 @@ class ExperimentConfig(BaseModel):
                 f"bootstrap seed count ({seed_count}) exceeds available nodes "
                 f"for node_type '{seed_node_type}' ({available_count})"
             )
+
+        for phase in self.startup.phases:
+            unknown_types = set(phase.node_types) - self.node_types.keys()
+            if unknown_types:
+                raise ValueError(
+                    f"startup phase '{phase.name}' references unknown node types: "
+                    f"{sorted(unknown_types)}"
+                )
 
         return self
     
