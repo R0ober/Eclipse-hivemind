@@ -68,6 +68,7 @@ def start_seed_nodes(
     network_id: str,
     labels: dict[str, str],
     created_containers: list[str],
+    nodes: list[dict],
     readiness_timeout: float = 120,
     fake_nodes: bool = False,
 ) -> dict[str, str]:
@@ -85,9 +86,10 @@ def start_seed_nodes(
             node_index=node_index,
             initial_peers=[],
         )
+        container_name = f"{run_id}-{node_id}"
         container_id = backend.create_container(
             image=FAKE_NODE_IMAGE if fake_nodes else node_type_config.image,
-            name=f"{run_id}-{node_id}",
+            name=container_name,
             network=network_id,
             env=node_env,
             labels=labels,
@@ -100,7 +102,17 @@ def start_seed_nodes(
             "HIVEMIND_MADDR=",
             readiness_timeout,
         )
-        seed_addresses[node_id] = extract_multiaddress(log_line)
+        maddr = extract_multiaddress(log_line)
+        seed_addresses[node_id] = maddr
+        nodes.append({
+            "node_id": node_id,
+            "node_type": node_type_name,
+            "index": node_index,
+            "container_id": container_id,
+            "container_name": container_name,
+            "maddr": maddr,
+            "is_seed": True,
+        })
 
     return seed_addresses
 
@@ -116,6 +128,7 @@ def _start_node_type(
     initial_peers: list[str],
     skip_node_ids: set[str],
     fake_nodes: bool,
+    nodes: list[dict],
 ) -> None:
     node_type_config = config.node_types[node_type_name]
 
@@ -131,9 +144,10 @@ def _start_node_type(
             node_index=node_index,
             initial_peers=initial_peers,
         )
+        container_name = f"{run_id}-{node_id}"
         container_id = backend.create_container(
             image=FAKE_NODE_IMAGE if fake_nodes else node_type_config.image,
-            name=f"{run_id}-{node_id}",
+            name=container_name,
             network=network_id,
             env=node_env,
             labels=labels,
@@ -141,6 +155,15 @@ def _start_node_type(
         )
         created_containers.append(container_id)
         backend.start(container_id)
+        nodes.append({
+            "node_id": node_id,
+            "node_type": node_type_name,
+            "index": node_index,
+            "container_id": container_id,
+            "container_name": container_name,
+            "maddr": None,
+            "is_seed": False,
+        })
 
 
 @contextlib.contextmanager
@@ -149,14 +172,16 @@ def run(
     backend: ContainerBackend,
     run_id: str | None = None,
     fake_nodes: bool = False,
-) -> Iterator[tuple[str, str]]:
-    """Create the run network, yield its ID, and remove it on exit."""
+) -> Iterator[tuple[str, str, list[dict]]]:
+    """Create the run network, yield it with the started nodes, and clean up on exit."""
+
     validate_runtime_config(config)
     run_id = run_id or _new_run_id()
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}
     network_id = backend.create_network(network_name, labels)
     created_containers: list[str] = []
+    nodes: list[dict] = []
 
     try:
         aggregator_id = backend.create_container(
@@ -177,6 +202,7 @@ def run(
             network_id=network_id,
             labels=labels,
             created_containers=created_containers,
+            nodes=nodes,
             fake_nodes=fake_nodes,
         )
         seed_node_ids = set(seed_addresses)
@@ -196,6 +222,7 @@ def run(
                     initial_peers,
                     seed_node_ids,
                     fake_nodes,
+                    nodes,
                 )
         else:
             for phase in phases:
@@ -211,11 +238,12 @@ def run(
                         initial_peers,
                         seed_node_ids,
                         fake_nodes,
+                        nodes,
                     )
                 if phase.wait_after_seconds:
                     time.sleep(phase.wait_after_seconds)
 
-        yield network_id, aggregator_id
+        yield network_id, aggregator_id, nodes
     finally:
         for container_id in reversed(created_containers):
             with contextlib.suppress(Exception):

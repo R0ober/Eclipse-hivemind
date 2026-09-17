@@ -36,9 +36,12 @@ def main() -> None:
             config,
             DockerBackend(),
             fake_nodes=args.fake_nodes,
-        ) as (network_id, aggregator_id):
+        ) as (network_id, aggregator_id, nodes):
             print(f"{'Docker Network:':<20}{network_id}")
             print(f"{'Aggregator:':<20}{aggregator_id}")
+            for node in nodes:
+                role = "seed" if node["is_seed"] else "peer"
+                print(f"{node['node_id']:<20}{role:<6}{node['maddr'] or ''}")
     except Exception as err:
         print(f"Docker Error: {err}")
         sys.exit(1)
