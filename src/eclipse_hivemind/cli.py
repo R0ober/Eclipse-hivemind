@@ -9,6 +9,11 @@ from orchestrator import orchestrator
 def main() -> None:
     p = argparse.ArgumentParser(description="Validate a Hivemind experiment config.")
     p.add_argument("--config-path", type=str, required=True, help="Path to YAML file")
+    p.add_argument(
+        "--fake-nodes",
+        action="store_true",
+        help="Use Alpine test nodes that emit fake Hivemind addresses",
+    )
     args = p.parse_args()
 
     try:
@@ -27,7 +32,11 @@ def main() -> None:
     print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
 
     try:
-        with orchestrator.run(config, DockerBackend()) as (network_id, aggregator_id):
+        with orchestrator.run(
+            config,
+            DockerBackend(),
+            fake_nodes=args.fake_nodes,
+        ) as (network_id, aggregator_id):
             print(f"{'Docker Network:':<20}{network_id}")
             print(f"{'Aggregator:':<20}{aggregator_id}")
     except Exception as err:

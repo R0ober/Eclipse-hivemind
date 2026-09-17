@@ -69,6 +69,7 @@ def start_seed_nodes(
     labels: dict[str, str],
     created_containers: list[str],
     readiness_timeout: float = 120,
+    fake_nodes: bool = False,
 ) -> dict[str, str]:
     """Start configured seed nodes and return their Hivemind addresses."""
     seed_addresses: dict[str, str] = {}
@@ -85,12 +86,12 @@ def start_seed_nodes(
             initial_peers=[],
         )
         container_id = backend.create_container(
-            image=FAKE_NODE_IMAGE,
+            image=FAKE_NODE_IMAGE if fake_nodes else node_type_config.image,
             name=f"{run_id}-{node_id}",
             network=network_id,
             env=node_env,
             labels=labels,
-            command=fake_node_command(node_id),
+            command=fake_node_command(node_id) if fake_nodes else None,
         )
         created_containers.append(container_id)
         backend.start(container_id)
@@ -114,6 +115,7 @@ def _start_node_type(
     created_containers: list[str],
     initial_peers: list[str],
     skip_node_ids: set[str],
+    fake_nodes: bool,
 ) -> None:
     node_type_config = config.node_types[node_type_name]
 
@@ -130,12 +132,12 @@ def _start_node_type(
             initial_peers=initial_peers,
         )
         container_id = backend.create_container(
-            image=node_type_config.image,
+            image=FAKE_NODE_IMAGE if fake_nodes else node_type_config.image,
             name=f"{run_id}-{node_id}",
             network=network_id,
             env=node_env,
             labels=labels,
-            command=AGGREGATOR_COMMAND,
+            command=fake_node_command(node_id) if fake_nodes else None,
         )
         created_containers.append(container_id)
         backend.start(container_id)
@@ -146,6 +148,7 @@ def run(
     config: ExperimentConfig,
     backend: ContainerBackend,
     run_id: str | None = None,
+    fake_nodes: bool = False,
 ) -> Iterator[tuple[str, str]]:
     """Create the run network, yield its ID, and remove it on exit."""
     validate_runtime_config(config)
@@ -174,6 +177,7 @@ def run(
             network_id=network_id,
             labels=labels,
             created_containers=created_containers,
+            fake_nodes=fake_nodes,
         )
         seed_node_ids = set(seed_addresses)
         initial_peers = list(seed_addresses.values())
@@ -191,6 +195,7 @@ def run(
                     created_containers,
                     initial_peers,
                     seed_node_ids,
+                    fake_nodes,
                 )
         else:
             for phase in phases:
@@ -205,6 +210,7 @@ def run(
                         created_containers,
                         initial_peers,
                         seed_node_ids,
+                        fake_nodes,
                     )
                 if phase.wait_after_seconds:
                     time.sleep(phase.wait_after_seconds)
