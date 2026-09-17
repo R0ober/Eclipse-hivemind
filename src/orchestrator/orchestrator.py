@@ -32,6 +32,14 @@ def _new_run_id() -> str:
     return f"run-{timestamp}-{secrets.token_hex(3)}"
 
 
+def validate_runtime_config(config: ExperimentConfig) -> None:
+    """Reject configuration modes the current orchestrator cannot execute."""
+    if config.bootstrap.policy.value == "full":
+        raise ValueError(
+            "bootstrap.policy='full' is not implemented; use 'seed_only'"
+        )
+
+
 def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
     """Return the configured node IDs that should act as bootstrap seeds."""
     seed_config = config.bootstrap.seeds
@@ -140,6 +148,7 @@ def run(
     run_id: str | None = None,
 ) -> Iterator[tuple[str, str]]:
     """Create the run network, yield its ID, and remove it on exit."""
+    validate_runtime_config(config)
     run_id = run_id or _new_run_id()
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}

@@ -115,11 +115,11 @@ This is an experiment variable, not implementation plumbing — see ADR 0002.
 | ----------------- | ------ | -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `seeds.node_type` | string | no       | the only node type* | Node type from which the seed peers are selected. Must reference an existing node type.                                                            |
 | `seeds.count`     | int    | no       | `1`                 | Number of seed peers. Must be `>= 1` and `<=` the count of `seeds.node_type`.                                                                      |
-| `policy`          | enum   | no       | `seed_only`         | `seed_only`: non-seed nodes start knowing only the seed(s), and discovery finds the remaining peers. `full`: every node starts knowing every peer. |
+| `policy`          | enum   | no       | `seed_only`         | `seed_only`: non-seed nodes start knowing only the seed(s), and discovery finds the remaining peers. `full`: every node starts knowing every peer. The current orchestrator supports `seed_only`; `full` is reserved for a future implementation. |
 
 * If `bootstrap` is omitted, the defaults are used: one seed from the only node type. If there are multiple node types, the first honest type is used. The default policy is `seed_only`.
 
-For baseline, non-adversarial runs, `full` is a reasonable choice. For eclipse runs, `seed_only` is required for the attack to be observable — see ADR 0002.
+For eclipse runs, `seed_only` is required for the attack to be observable — see ADR 0002. The current orchestrator rejects `full` until it can precompute all peer addresses before startup.
 
 ### `node_types` (map, required, at least one entry)
 
