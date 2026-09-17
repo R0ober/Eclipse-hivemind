@@ -1,26 +1,35 @@
 schema_version: 1
 
 experiment:
-  name: adversarial-ratio-30
-  seed: 42
-  rounds: 50
+  name: adversarial-ratio-30      
+  seed: 42                       
+  rounds: 50                      
 
 aggregator:
-  endpoint: http://aggregator:8080
+  endpoint: http://aggregator:8080   
+
+startup:
+  phases:
+    - name: honest-network
+      node_types: [normal]
+      wait_after_seconds: 120         
+    - name: adversarial-nodes
+      node_types: [adversarial]
 
 bootstrap:
   seeds:
-    node_type: normal
+    node_type: normal             
     count: 1
-  policy: seed_only
+  policy: seed_only               
+                                  
 
 node_types:
   normal:
     count: 7
-    image: hivemind-node:latest
+    image: eclipse-hivemind-node:dev
   adversarial:
     count: 3
-    image: hivemind-node:latest
+    image: eclipse-hivemind-node:dev  
     parameters:
       strategy: eclipse
-      target_prefix: "expert."
+      target_prefix: "expert."    # attack target; node derives its DHTID source from this

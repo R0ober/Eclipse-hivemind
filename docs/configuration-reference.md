@@ -21,6 +21,16 @@ experiment:
 aggregator:
   endpoint: http://aggregator:8080
 
+startup:
+  phases:
+    - name: honest-network
+      node_types:
+        - normal
+      wait_after_seconds: 120
+    - name: adversarial-nodes
+      node_types:
+        - adversarial
+
 bootstrap:
   seeds:
     node_type: normal
@@ -65,6 +75,36 @@ This field allows future schema changes to be detected instead of being silently
 | ---------- | ------ | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `endpoint` | string | yes      | —       | URL where nodes submit telemetry. The URL is resolved through Docker DNS from each container, for example `http://aggregator:8080`. |
 
+### `startup` (map, optional)
+
+Controls the order in which node types are started. The startup plan is kept
+separate from `node_types` so node behavior and experiment timing can change
+independently.
+
+#### `startup.phases` (list, optional)
+
+Each phase starts the listed node types, then waits for the configured delay
+before the next phase. If `startup` is omitted, the phase list is empty.
+
+| Field | Type | Required | Default | Notes |
+| ----- | ---- | -------- | ------- | ----- |
+| `name` | string | yes | — | Human-readable phase name. |
+| `node_types` | list of strings | yes | — | Names from the top-level `node_types` map. |
+| `wait_after_seconds` | int | no | `0` | Delay after the phase before the next phase. Must be `>= 0`. |
+
+For example, this starts the honest nodes first, waits two minutes, and then
+starts the adversarial nodes:
+
+```yaml
+startup:
+  phases:
+    - name: honest-network
+      node_types: [normal]
+      wait_after_seconds: 120
+    - name: adversarial-nodes
+      node_types: [adversarial]
+```
+
 ### `bootstrap` (map, optional)
 
 Controls how much of the peer set each node knows when it starts.
@@ -75,11 +115,11 @@ This is an experiment variable, not implementation plumbing — see ADR 0002.
 | ----------------- | ------ | -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `seeds.node_type` | string | no       | the only node type* | Node type from which the seed peers are selected. Must reference an existing node type.                                                            |
 | `seeds.count`     | int    | no       | `1`                 | Number of seed peers. Must be `>= 1` and `<=` the count of `seeds.node_type`.                                                                      |
-| `policy`          | enum   | no       | `seed_only`         | `seed_only`: non-seed nodes start knowing only the seed(s), and discovery finds the remaining peers. `full`: every node starts knowing every peer. |
+| `policy`          | enum   | no       | `seed_only`         | `seed_only`: non-seed nodes start knowing only the seed(s), and discovery finds the remaining peers. `full`: every node starts knowing every peer. The current orchestrator supports `seed_only`; `full` is reserved for a future implementation. |
 
 * If `bootstrap` is omitted, the defaults are used: one seed from the only node type. If there are multiple node types, the first honest type is used. The default policy is `seed_only`.
 
-For baseline, non-adversarial runs, `full` is a reasonable choice. For eclipse runs, `seed_only` is required for the attack to be observable — see ADR 0002.
+For eclipse runs, `seed_only` is required for the attack to be observable — see ADR 0002. The current orchestrator rejects `full` until it can precompute all peer addresses before startup.
 
 ### `node_types` (map, required, at least one entry)
 
@@ -113,6 +153,8 @@ The parser enforces the following rules:
 * At least one node type must have `count > 0`.
 * `bootstrap.seeds.node_type` must exist in `node_types`.
 * `bootstrap.seeds.node_type` must have a `count` greater than or equal to `bootstrap.seeds.count`.
+* Every `startup.phases[].node_types[]` entry must exist in `node_types`.
+* Every `startup.phases[].wait_after_seconds` value must be `>= 0`.
 * `aggregator.endpoint` must be a valid URL.
 * **Unknown fields are rejected**, not ignored. The configuration uses strict decoding, so a typo such as `conut: 7` fails instead of being silently ignored.
 * Validation errors are collected and reported together. Each error includes the path to the invalid field instead of stopping at the first error.
@@ -205,6 +247,14 @@ experiment:
 
 aggregator:
   endpoint: http://aggregator:8080   # resolved via Docker DNS from every node
+
+startup:
+  phases:
+    - name: honest-network
+      node_types: [normal]
+      wait_after_seconds: 120         # delay before adversarial nodes start
+    - name: adversarial-nodes
+      node_types: [adversarial]
 
 bootstrap:
   seeds:

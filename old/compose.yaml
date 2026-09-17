@@ -1,0 +1,30 @@
+services:
+  bootstrap:
+    build: .
+    command: ["python", "bootstrap.py"]
+    init: true
+    shm_size: 256mb
+    volumes:
+      - rendezvous:/rendezvous
+    healthcheck:
+      test: ["CMD", "test", "-s", "/rendezvous/bootstrap.maddr"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 3s
+    stop_grace_period: 15s
+
+  peer:
+    build: .
+    command: ["python", "train.py"]
+    init: true
+    shm_size: 256mb
+    volumes:
+      - rendezvous:/rendezvous:ro
+    depends_on:
+      bootstrap:
+        condition: service_healthy
+    stop_grace_period: 30s
+
+volumes:
+  rendezvous:

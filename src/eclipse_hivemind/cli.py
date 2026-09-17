@@ -2,11 +2,18 @@ import argparse
 import sys
 
 from .config import ConfigError, parse_config_file
+from orchestrator.docker_backend import DockerBackend
+from orchestrator import orchestrator
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Validate a Hivemind experiment config.")
     p.add_argument("--config-path", type=str, required=True, help="Path to YAML file")
+    p.add_argument(
+        "--fake-nodes",
+        action="store_true",
+        help="Use Alpine test nodes that emit fake Hivemind addresses",
+    )
     args = p.parse_args()
 
     try:
@@ -24,7 +31,20 @@ def main() -> None:
         print(f"{label:<20}{node_config.count}")
     print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
 
-## HAND OF TO ORCHESTRATOR HERE 
+    try:
+        with orchestrator.run(
+            config,
+            DockerBackend(),
+            fake_nodes=args.fake_nodes,
+        ) as (network_id, aggregator_id, nodes):
+            print(f"{'Docker Network:':<20}{network_id}")
+            print(f"{'Aggregator:':<20}{aggregator_id}")
+            for node in nodes:
+                role = "seed" if node["is_seed"] else "peer"
+                print(f"{node['node_id']:<20}{role:<6}{node['maddr'] or ''}")
+    except Exception as err:
+        print(f"Docker Error: {err}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

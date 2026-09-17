@@ -20,3 +20,6 @@ for lifecycle.
 | 0004 | [Run all node types from one image, selecting behaviour via parameters](./0004-single-image-behaviour-via-parameters.md) | Accepted |
 | 0005 | [Use a single experiment seed with per-node derivation](./0005-single-seed-per-node-derivation.md) | Accepted |
 | 0006 | [Terminate experiments by round count rather than wall-clock](./0006-terminate-by-round-count.md) | Accepted |
+| 0007 | [Measure the node-count ceiling on a single host](./0007-node-count-ceiling-single-host.md) | Proposed |
+| 0008 | [Capture node addresses from container logs rather than a shared volume](./0008-capture-node-address-from-logs.md) | Accepted |
+| 0009 | [Keep startup timing in its own config block](./0009-startup-timing-separate-from-node-types.md) | Accepted |
