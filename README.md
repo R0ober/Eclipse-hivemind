@@ -2,6 +2,17 @@
 
 Experiments for studying eclipse attacks in Hivemind networks.
 
+## Build the node image
+
+The node image is built from the repository root, because the Dockerfile copies the
+runner out of `src/`. The tag must match the `image` field in the config you run.
+
+```bash
+docker build -f docker/node.Dockerfile -t eclipse-hivemind-node:dev .
+```
+
+The first build installs torch and hivemind, so expect it to take a while.
+
 ## Validate a configuration
 
 ```bash
