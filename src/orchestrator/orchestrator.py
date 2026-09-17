@@ -84,7 +84,7 @@ def start_seed_nodes(
             run_id=run_id,
             node_type_name=node_type_name,
             node_index=node_index,
-            initial_peers=[],
+            initial_peers=list(seed_addresses.values()),
         )
         container_name = f"{run_id}-{node_id}"
         container_id = backend.create_container(
