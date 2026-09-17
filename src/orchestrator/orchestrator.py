@@ -104,20 +104,26 @@ def _start_node_type(
     network_id: str,
     labels: dict[str, str],
     created_containers: list[str],
+    initial_peers: list[str],
+    skip_node_ids: set[str],
 ) -> None:
     node_type_config = config.node_types[node_type_name]
 
     for node_index in range(node_type_config.count):
+        node_id = f"{node_type_name}-{node_index}"
+        if node_id in skip_node_ids:
+            continue
+
         node_env = build_node_env(
             config=config,
             run_id=run_id,
             node_type_name=node_type_name,
             node_index=node_index,
-            initial_peers=[],
+            initial_peers=initial_peers,
         )
         container_id = backend.create_container(
             image=node_type_config.image,
-            name=f"{run_id}-{node_type_name}-{node_index}",
+            name=f"{run_id}-{node_id}",
             network=network_id,
             env=node_env,
             labels=labels,
@@ -151,6 +157,18 @@ def run(
         )
         created_containers.append(aggregator_id)
         backend.start(aggregator_id)
+
+        seed_addresses = start_seed_nodes(
+            config=config,
+            backend=backend,
+            run_id=run_id,
+            network_id=network_id,
+            labels=labels,
+            created_containers=created_containers,
+        )
+        seed_node_ids = set(seed_addresses)
+        initial_peers = list(seed_addresses.values())
+
         phases = config.startup.phases
         if not phases:
             for node_type_name in config.node_types:
@@ -162,6 +180,8 @@ def run(
                     network_id,
                     labels,
                     created_containers,
+                    initial_peers,
+                    seed_node_ids,
                 )
         else:
             for phase in phases:
@@ -174,6 +194,8 @@ def run(
                         network_id,
                         labels,
                         created_containers,
+                        initial_peers,
+                        seed_node_ids,
                     )
                 if phase.wait_after_seconds:
                     time.sleep(phase.wait_after_seconds)
