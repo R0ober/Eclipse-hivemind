@@ -59,6 +59,10 @@ class DockerBackend(ContainerBackend):
                 if pattern in line:
                     return line
 
+            container.reload()
+            if container.status == "exited":
+                raise RuntimeError(f"container {container_id} exited: {text}")
+
             time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
 
         raise TimeoutError(
