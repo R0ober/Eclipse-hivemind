@@ -14,4 +14,4 @@ bootstrap:
 node_types:
   normal:
     count: 3
-    image: hivemind-node:latest
+    image: alpine:3.20
