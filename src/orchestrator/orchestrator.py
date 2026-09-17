@@ -21,6 +21,70 @@ def _new_run_id() -> str:
     return f"run-{timestamp}-{secrets.token_hex(3)}"
 
 
+def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
+    """Return the configured node IDs that should act as bootstrap seeds."""
+    seed_config = config.bootstrap.seeds
+    return [
+        f"{seed_config.node_type}-{index}"
+        for index in range(seed_config.count)
+    ]
+
+
+def extract_multiaddress(log_line: str) -> str:
+    """Extract a Hivemind multiaddress from a readiness log line."""
+    marker = "HIVEMIND_MADDR="
+    if marker not in log_line:
+        raise ValueError(f"log line does not contain {marker}")
+
+    multiaddress = log_line.split(marker, 1)[1].strip().split()[0]
+    if not multiaddress:
+        raise ValueError("HIVEMIND_MADDR marker has no address")
+    return multiaddress
+
+
+def start_seed_nodes(
+    config: ExperimentConfig,
+    backend: ContainerBackend,
+    run_id: str,
+    network_id: str,
+    labels: dict[str, str],
+    created_containers: list[str],
+    readiness_timeout: float = 120,
+) -> dict[str, str]:
+    """Start configured seed nodes and return their Hivemind addresses."""
+    seed_addresses: dict[str, str] = {}
+
+    for node_id in select_seed_node_ids(config):
+        node_type_name, index_text = node_id.rsplit("-", 1)
+        node_index = int(index_text)
+        node_type_config = config.node_types[node_type_name]
+        node_env = build_node_env(
+            config=config,
+            run_id=run_id,
+            node_type_name=node_type_name,
+            node_index=node_index,
+            initial_peers=[],
+        )
+        container_id = backend.create_container(
+            image=node_type_config.image,
+            name=f"{run_id}-{node_id}",
+            network=network_id,
+            env=node_env,
+            labels=labels,
+            command=AGGREGATOR_COMMAND,
+        )
+        created_containers.append(container_id)
+        backend.start(container_id)
+        log_line = backend.wait_for_log(
+            container_id,
+            "HIVEMIND_MADDR=",
+            readiness_timeout,
+        )
+        seed_addresses[node_id] = extract_multiaddress(log_line)
+
+    return seed_addresses
+
+
 def _start_node_type(
     config: ExperimentConfig,
     backend: ContainerBackend,
