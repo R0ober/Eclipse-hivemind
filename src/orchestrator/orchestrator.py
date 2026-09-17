@@ -14,6 +14,17 @@ from .env import build_node_env
 
 AGGREGATOR_IMAGE = "alpine:3.20"
 AGGREGATOR_COMMAND = ["sleep", "infinity"]
+FAKE_NODE_IMAGE = "alpine:3.20"
+
+
+def fake_node_command(node_id: str) -> list[str]:
+    """Command for exercising node readiness before the Hivemind image exists."""
+    address = f"/ip4/172.18.0.2/tcp/4000/p2p/fake-{node_id}"
+    return [
+        "sh",
+        "-c",
+        f"echo HIVEMIND_MADDR={address}; sleep infinity",
+    ]
 
 
 def _new_run_id() -> str:
@@ -66,12 +77,12 @@ def start_seed_nodes(
             initial_peers=[],
         )
         container_id = backend.create_container(
-            image=node_type_config.image,
+            image=FAKE_NODE_IMAGE,
             name=f"{run_id}-{node_id}",
             network=network_id,
             env=node_env,
             labels=labels,
-            command=AGGREGATOR_COMMAND,
+            command=fake_node_command(node_id),
         )
         created_containers.append(container_id)
         backend.start(container_id)
