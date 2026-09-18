@@ -27,6 +27,7 @@ class DockerBackend(ContainerBackend):
         labels: dict[str, str],
         volumes: dict | None = None,
         command: list[str] | str | None = None,
+        network_aliases: list[str] | None = None,
     ) -> str:
         options = {
             "image": image,
@@ -40,6 +41,8 @@ class DockerBackend(ContainerBackend):
             options["volumes"] = volumes
         if command is not None:
             options["command"] = command
+        if network_aliases is not None:
+            options["network_aliases"] = network_aliases
 
         container = self._client.containers.create(**options)
         return container.id
