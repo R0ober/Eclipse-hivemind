@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import contextlib
 import datetime as _dt
+import json
 import secrets
 import time
 from collections.abc import Iterator
 
 from eclipse_hivemind.config import ExperimentConfig
+from eclipse_hivemind.aggregator.models import ExperimentRegistration, ExperimentNode
 from .backend import ContainerBackend
 from .env import build_node_env 
 
-AGGREGATOR_IMAGE = "alpine:3.20"
-AGGREGATOR_COMMAND = ["sleep", "infinity"]
+AGGREGATOR_IMAGE = "eclipse-hivemind-aggregator:dev"
+AGGREGATOR_COMMAND = ["python", "-m", "eclipse_hivemind.aggregator"]
 FAKE_NODE_IMAGE = "alpine:3.20"
 
 
@@ -47,6 +49,27 @@ def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
         f"{seed_config.node_type}-{index}"
         for index in range(seed_config.count)
     ]
+
+
+def build_experiment_manifest(
+    config: ExperimentConfig,
+    run_id: str,
+) -> str:
+    nodes = [
+        ExperimentNode(
+            node_id=f"{node_type_name}-{node_index}",
+            node_type=node_type_name,
+            node_index=node_index,
+        )
+        for node_type_name, node_type in config.node_types.items()
+        for node_index in range(node_type.count)
+    ]
+    return ExperimentRegistration(
+        experiment_id=run_id,
+        experiment_name=config.experiment.name,
+        rounds=config.experiment.rounds,
+        nodes=nodes,
+    ).model_dump_json()
 
 
 def extract_multiaddress(log_line: str) -> str:
@@ -188,9 +211,13 @@ def run(
             image=AGGREGATOR_IMAGE,
             name=f"{run_id}-aggregator",
             network=network_id,
-            env={"EXPERIMENT_ID": run_id},
+            env={
+                "EXPERIMENT_ID": run_id,
+                "EXPERIMENT_MANIFEST": build_experiment_manifest(config, run_id),
+            },
             labels=labels,
             command=AGGREGATOR_COMMAND,
+            network_aliases=["aggregator"],
         )
         created_containers.append(aggregator_id)
         backend.start(aggregator_id)
