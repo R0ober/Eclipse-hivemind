@@ -23,3 +23,4 @@ for lifecycle.
 | 0007 | [Measure the node-count ceiling on a single host](./0007-node-count-ceiling-single-host.md) | Proposed |
 | 0008 | [Capture node addresses from container logs rather than a shared volume](./0008-capture-node-address-from-logs.md) | Accepted |
 | 0009 | [Keep startup timing in its own config block](./0009-startup-timing-separate-from-node-types.md) | Accepted |
+| 0010 | [Let nodes send events and let the aggregator produce experiment results](./0010-aggregator-collects-node-events.md) | Proposed |
