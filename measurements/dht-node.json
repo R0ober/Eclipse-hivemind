@@ -1,0 +1,111 @@
+{
+  "image": "eclipse-hivemind-node:dev",
+  "image_size_bytes": 9369388505,
+  "command": null,
+  "network": "bridge",
+  "duration_seconds": 30.0,
+  "interval_seconds": 1.0,
+  "startup_seconds": 2.677,
+  "sample_count": 15,
+  "memory": {
+    "peak_bytes": 647487488,
+    "average_bytes": 646332689
+  },
+  "cpu_percent": {
+    "peak": 0.17,
+    "average": 0.07
+  },
+  "peak_pids": 26,
+  "samples": [
+    {
+      "elapsed_seconds": 1.006,
+      "memory_bytes": 647487488,
+      "cpu_percent": null,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 3.015,
+      "memory_bytes": 647172096,
+      "cpu_percent": 0.08670249762883339,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 5.026,
+      "memory_bytes": 646492160,
+      "cpu_percent": 0.16722678458622867,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 7.035,
+      "memory_bytes": 646492160,
+      "cpu_percent": 0.04091139240506329,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 9.045,
+      "memory_bytes": 646443008,
+      "cpu_percent": 0.05523689197725837,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 11.055,
+      "memory_bytes": 646758400,
+      "cpu_percent": 0.08842238381283592,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 13.062,
+      "memory_bytes": 646008832,
+      "cpu_percent": 0.06476913345983555,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 15.07,
+      "memory_bytes": 646533120,
+      "cpu_percent": 0.07962276013832129,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 17.078,
+      "memory_bytes": 645857280,
+      "cpu_percent": 0.019785488958990537,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 19.089,
+      "memory_bytes": 645857280,
+      "cpu_percent": 0.05974747474747475,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 21.099,
+      "memory_bytes": 646082560,
+      "cpu_percent": 0.1330732934885184,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 23.106,
+      "memory_bytes": 645865472,
+      "cpu_percent": 0.024448645242596094,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 25.114,
+      "memory_bytes": 646127616,
+      "cpu_percent": 0.07244808055380743,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 27.125,
+      "memory_bytes": 645906432,
+      "cpu_percent": 0.02511188150015758,
+      "pids": 26
+    },
+    {
+      "elapsed_seconds": 29.134,
+      "memory_bytes": 645906432,
+      "cpu_percent": 0.030545454545454546,
+      "pids": 26
+    }
+  ]
+}

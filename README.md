@@ -32,6 +32,23 @@ explicit Alpine test mode:
 eclipse-hivemind --config-path configs/adversarial-ratio-30.yaml --fake-nodes
 ```
 
+## Measure container resources
+
+Measure one current DHT node for 30 seconds and write  JSON:
+
+```bash
+python scripts/measure_container_resources.py \
+  --image eclipse-hivemind-node:dev \
+  --ready-pattern HIVEMIND_READY \
+  --output measurements/dht-node.json
+```
+
+The same script can measure a future training node or aggregator by changing
+`--image` and, when needed, `--command`. It records image size, startup time,
+peak and average memory, CPU, process count, and raw samples. Run one
+measurement per workload and keep the duration, interval, host, and image tag
+with the report.
+
 
 check docker events to debug container issues 
 ```bash
