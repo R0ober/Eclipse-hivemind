@@ -13,6 +13,14 @@ docker build -f docker/node.Dockerfile -t eclipse-hivemind-node:dev .
 
 The first build installs torch and hivemind, so expect it to take a while.
 
+## Build and run the aggregator
+
+Build the aggregator image from the repository root:
+
+```bash
+docker build -f docker/aggregator.Dockerfile -t eclipse-hivemind-aggregator:dev .
+```
+
 ## Validate a configuration
 
 ```bash

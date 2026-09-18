@@ -12,7 +12,7 @@ startup:
   phases:
     - name: honest-network
       node_types: [normal]
-      wait_after_seconds: 120         
+      wait_after_seconds: 60         
     - name: adversarial-nodes
       node_types: [adversarial]
 
