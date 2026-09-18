@@ -9,6 +9,8 @@ import time
 
 import hivemind
 
+import client
+
 LISTEN_PORT = 1337
 
 
@@ -47,6 +49,22 @@ def main() -> None:
 
     node_id = os.environ.get("NODE_ID", "unknown")
     print(f"HIVEMIND_READY=1 NODE_ID={node_id}", flush=True)
+    # api post to aggregator showing node started
+
+    aggregator_endpoint = os.environ.get("AGGREGATOR_ENDPOINT")
+    if not aggregator_endpoint:
+        raise RuntimeError("AGGREGATOR_ENDPOINT is required")
+    node_type = os.environ.get("NODE_TYPE", "unknown")
+    node_index = int(os.environ.get("NODE_INDEX", "0"))
+    acknowledgement = client.send_node_started(
+        aggregator_endpoint=aggregator_endpoint,
+        experiment_id=os.environ.get("EXPERIMENT_ID", "unknown"),
+        node_id=node_id,
+        node_type=node_type,
+        node_index=node_index,
+        hivemind_address=str(visible_maddrs[0]),
+    )
+    print(f"AGGREGATOR_ACK={acknowledgement}", flush=True)
 
     while True:
         time.sleep(60)
