@@ -25,3 +25,6 @@ for lifecycle.
 | 0009 | [Keep startup timing in its own config block](./0009-startup-timing-separate-from-node-types.md) | Accepted |
 | 0010 | [Let nodes send events and let the aggregator produce experiment results](./0010-aggregator-collects-node-events.md) | Proposed |
 | 0011 | [Give each node type its own explicit runner, sharing only genuinely common code](./0011-explicit-node-runner-per-type.md) | Accepted |
+| 0012 | [Release nodes into training from a per-phase start barrier in the aggregator](./0012-aggregator-start-barrier.md) | Accepted |
+| 0013 | [Take averaging evidence from hivemind's log lines, and pace the loop so rounds are real](./0013-averaging-evidence-from-hivemind-logs.md) | Accepted |
+| 0014 | [Measure accuracy on a fixed held-out set shared by every node](./0014-fixed-held-out-eval-set.md) | Accepted |
