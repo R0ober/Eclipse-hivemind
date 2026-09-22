@@ -38,6 +38,7 @@ def build_node_env(
     env = {
         "EXPERIMENT_ID": run_id,
         "EXPERIMENT_NAME": config.experiment.name,
+        "EXPERIMENT_SEED": str(config.experiment.seed),
         "ROUNDS": str(config.experiment.rounds),
         "NODE_ID": node_id,
         "NODE_TYPE": node_type_name,

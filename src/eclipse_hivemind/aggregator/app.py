@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
 
@@ -25,7 +26,7 @@ def create_app(
     store: InMemoryEventStore | None = None,
     initial_registration: ExperimentRegistration | None = None,
 ) -> FastAPI:
-    event_store = store or InMemoryEventStore()
+    event_store = store or InMemoryEventStore(_export_path_from_environment())
     if initial_registration is not None:
         event_store.register(initial_registration)
     application = FastAPI(title="Eclipse Hivemind Aggregator", version="1.0")
@@ -78,6 +79,11 @@ def _registration_from_environment() -> ExperimentRegistration | None:
     if not manifest:
         return None
     return ExperimentRegistration.model_validate_json(manifest)
+
+
+def _export_path_from_environment() -> Path | None:
+    export_path = os.environ.get("EVENT_EXPORT_PATH")
+    return Path(export_path) if export_path else None
 
 
 app = create_app(initial_registration=_registration_from_environment())

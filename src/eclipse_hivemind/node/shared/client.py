@@ -9,17 +9,19 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-def send_node_started(
+def _send_event(
     *,
     aggregator_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
     node_index: int,
-    hivemind_address: str,
+    sequence: int,
+    event_type: str,
+    data: dict,
     timeout: float = 5.0,
 ) -> dict:
-    """Send the first lifecycle event and return the aggregator acknowledgement."""
+    """Send one node event and return the aggregator acknowledgement."""
     payload = {
         "schema_version": 1,
         "experiment_id": experiment_id,
@@ -31,13 +33,10 @@ def send_node_started(
         "events": [
             {
                 "event_id": str(uuid.uuid4()),
-                "sequence": 0,
-                "event_type": "node_started",
+                "sequence": sequence,
+                "event_type": event_type,
                 "occurred_at": datetime.now(timezone.utc).isoformat(),
-                "data": {
-                    "runtime": "dht",
-                    "hivemind_address": hivemind_address,
-                },
+                "data": data,
             }
         ],
     }
@@ -57,7 +56,67 @@ def send_node_started(
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
         raise RuntimeError(
-            f"aggregator rejected node_started with HTTP {error.code}: {body}"
+            f"aggregator rejected {event_type} with HTTP {error.code}: {body}"
         ) from error
     except URLError as error:
         raise RuntimeError(f"could not reach aggregator at {url}: {error.reason}") from error
+
+
+def send_node_started(
+    *,
+    aggregator_endpoint: str,
+    experiment_id: str,
+    node_id: str,
+    node_type: str,
+    node_index: int,
+    hivemind_address: str,
+    timeout: float = 5.0,
+) -> dict:
+    """Send the first lifecycle event and return the aggregator acknowledgement."""
+    return _send_event(
+        aggregator_endpoint=aggregator_endpoint,
+        experiment_id=experiment_id,
+        node_id=node_id,
+        node_type=node_type,
+        node_index=node_index,
+        sequence=0,
+        event_type="node_started",
+        data={"runtime": "dht", "hivemind_address": hivemind_address},
+        timeout=timeout,
+    )
+
+
+def send_training_metrics(
+    *,
+    aggregator_endpoint: str,
+    experiment_id: str,
+    node_id: str,
+    node_type: str,
+    node_index: int,
+    step: int,
+    round: int,
+    loss: float,
+    accuracy: float,
+    samples: int,
+    learning_rate: float,
+    timeout: float = 5.0,
+) -> dict:
+    """Send one gradient-descent measurement from an honest node."""
+    return _send_event(
+        aggregator_endpoint=aggregator_endpoint,
+        experiment_id=experiment_id,
+        node_id=node_id,
+        node_type=node_type,
+        node_index=node_index,
+        sequence=step,
+        event_type="training_metrics",
+        data={
+            "step": step,
+            "round": round,
+            "loss": loss,
+            "accuracy": accuracy,
+            "samples": samples,
+            "learning_rate": learning_rate,
+        },
+        timeout=timeout,
+    )

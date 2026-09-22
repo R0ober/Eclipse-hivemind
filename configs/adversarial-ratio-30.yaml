@@ -12,7 +12,7 @@ startup:
   phases:
     - name: honest-network
       node_types: [normal]
-      wait_after_seconds: 60         
+      wait_after_seconds: 0
     - name: adversarial-nodes
       node_types: [adversarial]
 
@@ -25,8 +25,13 @@ bootstrap:
 
 node_types:
   normal:
-    count: 7
+    count: 3
     image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 256
+      matchmaking_time: 5
   adversarial:
     count: 3
     image: eclipse-hivemind-node-honest:dev
