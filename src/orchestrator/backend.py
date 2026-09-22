@@ -21,6 +21,7 @@ class ContainerBackend(Protocol):
         labels: dict[str, str],
         volumes: dict | None = None,
         command: list[str] | str | None = None,
+        network_aliases: list[str] | None = None,
     ) -> str: ...
 
     def start(self, container_id: str) -> None: ...

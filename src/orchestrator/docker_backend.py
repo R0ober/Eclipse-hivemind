@@ -27,21 +27,27 @@ class DockerBackend(ContainerBackend):
         labels: dict[str, str],
         volumes: dict | None = None,
         command: list[str] | str | None = None,
+        network_aliases: list[str] | None = None,
     ) -> str:
         options = {
             "image": image,
             "name": name,
-            "network": network,
             "environment": env,
             "labels": labels,
             "detach": True,
         }
+        if network_aliases is None:
+            options["network"] = network
         if volumes is not None:
             options["volumes"] = volumes
         if command is not None:
             options["command"] = command
-
         container = self._client.containers.create(**options)
+        if network_aliases is not None:
+            self._client.networks.get(network).connect(
+                container,
+                aliases=network_aliases,
+            )
         return container.id
 
     def start(self, container_id: str) -> None:

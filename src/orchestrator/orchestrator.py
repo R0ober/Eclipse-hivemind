@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import contextlib
 import datetime as _dt
+import json
 import secrets
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 from eclipse_hivemind.config import ExperimentConfig
+from eclipse_hivemind.aggregator.models import ExperimentRegistration, ExperimentNode
 from .backend import ContainerBackend
 from .env import build_node_env 
 
-AGGREGATOR_IMAGE = "alpine:3.20"
-AGGREGATOR_COMMAND = ["sleep", "infinity"]
+AGGREGATOR_IMAGE = "eclipse-hivemind-aggregator:dev"
+AGGREGATOR_COMMAND = ["python", "-m", "eclipse_hivemind.aggregator"]
 FAKE_NODE_IMAGE = "alpine:3.20"
+# A run is bounded by rounds, not wall-clock (ADR 0006), and one round is now a
+# real aggregation round, so the ceiling has to cover matchmaking for every round.
+TRAINING_TIMEOUT_SECONDS = 3600
 
 
 def fake_node_command(node_id: str) -> list[str]:
@@ -47,6 +53,51 @@ def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
         f"{seed_config.node_type}-{index}"
         for index in range(seed_config.count)
     ]
+
+
+def start_groups(config: ExperimentConfig) -> dict[str, str]:
+    """Map each node type to the cohort it starts with.
+
+    Nodes wait at the aggregator's start barrier for their own cohort, so a phase
+    that starts later still joins a swarm that is already training - which is the
+    point of startup.phases (ADR 0009). Without phases every node starts at once
+    and the whole experiment is one cohort.
+    """
+    if not config.startup.phases:
+        return {node_type_name: "all" for node_type_name in config.node_types}
+
+    groups: dict[str, str] = {}
+    for phase in config.startup.phases:
+        for node_type_name in phase.node_types:
+            groups.setdefault(node_type_name, phase.name)
+    # A node type named in no phase is never started; keep it out of every cohort
+    # so it cannot hold the barrier closed for node types that do start.
+    for node_type_name in config.node_types:
+        groups.setdefault(node_type_name, f"unscheduled:{node_type_name}")
+    return groups
+
+
+def build_experiment_manifest(
+    config: ExperimentConfig,
+    run_id: str,
+) -> str:
+    groups = start_groups(config)
+    nodes = [
+        ExperimentNode(
+            node_id=f"{node_type_name}-{node_index}",
+            node_type=node_type_name,
+            node_index=node_index,
+            start_group=groups[node_type_name],
+        )
+        for node_type_name, node_type in config.node_types.items()
+        for node_index in range(node_type.count)
+    ]
+    return ExperimentRegistration(
+        experiment_id=run_id,
+        experiment_name=config.experiment.name,
+        rounds=config.experiment.rounds,
+        nodes=nodes,
+    ).model_dump_json()
 
 
 def extract_multiaddress(log_line: str) -> str:
@@ -180,6 +231,8 @@ def run(
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}
     network_id = backend.create_network(network_name, labels)
+    output_directory = Path.cwd() / "outputs" / run_id
+    output_directory.mkdir(parents=True, exist_ok=True)
     created_containers: list[str] = []
     nodes: list[dict] = []
 
@@ -188,9 +241,15 @@ def run(
             image=AGGREGATOR_IMAGE,
             name=f"{run_id}-aggregator",
             network=network_id,
-            env={"EXPERIMENT_ID": run_id},
+            env={
+                "EXPERIMENT_ID": run_id,
+                "EXPERIMENT_MANIFEST": build_experiment_manifest(config, run_id),
+                "EVENT_EXPORT_PATH": "/outputs/events.jsonl",
+            },
             labels=labels,
+            volumes={str(output_directory): {"bind": "/outputs", "mode": "rw"}},
             command=AGGREGATOR_COMMAND,
+            network_aliases=["aggregator"],
         )
         created_containers.append(aggregator_id)
         backend.start(aggregator_id)
@@ -242,6 +301,14 @@ def run(
                     )
                 if phase.wait_after_seconds:
                     time.sleep(phase.wait_after_seconds)
+
+        if not fake_nodes:
+            for node in nodes:
+                backend.wait_for_log(
+                    node["container_id"],
+                    "TRAINING_COMPLETE=1",
+                    timeout=TRAINING_TIMEOUT_SECONDS,
+                )
 
         yield network_id, aggregator_id, nodes
     finally:

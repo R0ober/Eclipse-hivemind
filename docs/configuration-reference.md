@@ -86,6 +86,11 @@ independently.
 Each phase starts the listed node types, then waits for the configured delay
 before the next phase. If `startup` is omitted, the phase list is empty.
 
+A phase is also the cohort its nodes synchronise with: the nodes of one phase
+wait for each other at the aggregator's start barrier before their first step,
+and do not wait for later phases. That is what lets a later phase join a swarm
+that is already training. See ADR 0012.
+
 | Field | Type | Required | Default | Notes |
 | ----- | ---- | -------- | ------- | ----- |
 | `name` | string | yes | — | Human-readable phase name. |
@@ -132,6 +137,22 @@ Each key must be unique. The type name is also the exact identifier used later f
 | `count`      | int    | yes      | —       | Number of containers of this type. Must be `>= 0`. At least one node type must have a count `> 0`.                                                                         |
 | `image`      | string | yes      | —       | Docker image reference, such as `repo/name:tag` or a digest. Using the same image for multiple types is normal. Behaviour is selected through `parameters` — see ADR 0004. |
 | `parameters` | map    | no       | `{}`    | Free-form key/value parameters that control node behaviour. Each parameter is passed to the container as a `PARAM_<UPPERCASE_KEY>` environment variable.                   |
+
+#### Common parameters for a training node type
+
+These are read by the node runners, not by the parser, so they follow the
+`PARAM_*` contract like any other parameter.
+
+| Parameter | Default | Meaning |
+| --------- | ------- | ------- |
+| `batch_size` | `32` | Samples per local step. |
+| `learning_rate` | `0.05` | SGD learning rate. |
+| `target_batch_size` | `total_nodes x batch_size x 2` | Samples the swarm must accumulate before an epoch ends. One epoch is one aggregation round, so this has to be larger than one peer's batch; otherwise every peer finishes an epoch alone on every step and `round` equals `step`. **Every node type in a run must use the same value**, or the peers disagree about when an epoch ends. |
+| `matchmaking_time` | `15` | Seconds hivemind spends assembling an averaging group. Needs room for every peer to join. |
+| `averaging_timeout` | `60` | Seconds for the all-reduce. Must be greater than `matchmaking_time`; the node refuses to start otherwise, because hivemind schedules the round `matchmaking_time` ahead and then asserts that it fits inside the timeout. |
+| `step_delay_seconds` | `1.0` | Sleep after each local step. A step on the toy model takes about a millisecond, so without this a peer reaches `target_batch_size` on its own before hivemind's progress tracker has fetched anyone else's progress, and no real aggregation ever happens. It stands in for the compute time of a realistic step. |
+| `eval_size` | `4096` | Size of the held-out evaluation set, generated from `experiment.seed` so every node scores the same samples. |
+| `start_barrier_timeout` | `180` | Seconds a node waits at the start barrier for the other nodes **in its own startup phase** to report `node_started`. It does not wait for later phases, so it is unaffected by `wait_after_seconds`. On a timeout the node trains anyway and reports a `node_error`. |
 
 #### Common parameters for an adversarial type
 
@@ -184,7 +205,7 @@ Add these settings only when there is a need to vary them.
 
 When added, they should be placed under `experiment.parameters` if they apply to the whole experiment rather than to individual nodes.
 
-* Averager tuning: `target_group_size`, `min_group_size`, `averaging_alpha`, `matchmaking_time`.
+* Averager tuning: `target_group_size`, `min_group_size`, `averaging_alpha`.
 * Per-type `resources`, such as CPU and memory limits.
 * Per-type `subnet` / `network`. These are only relevant if an IP-diversity defense is added. Hivemind's Kademlia DHT does not currently use one — see ADR 0003.
 * Parameter sweeps. A separate sweep file that generates multiple resolved configs is cleaner than using list-valued fields in this file.
@@ -198,7 +219,9 @@ For reference, this is the contract between the orchestrator and each container:
 ```text
 EXPERIMENT_ID        run-2026-09-15-a3f9   # = run_id
 EXPERIMENT_NAME      adversarial-ratio-30
+EXPERIMENT_SEED      42
 ROUNDS               50
+EXPERIMENT_TOTAL_NODES 10                  # every node counts the swarm it is sizing rounds for
 NODE_ID              adversarial-0
 NODE_TYPE            adversarial
 NODE_INDEX           0

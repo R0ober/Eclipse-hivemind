@@ -55,7 +55,7 @@ required because a batch may be partially accepted or retried.
         "step": 120,
         "round": 8,
         "loss": 0.421,
-        "accuracy": 0.87,
+        "batch_accuracy": 0.87,
         "samples": 32
       }
     }
@@ -77,6 +77,16 @@ required because a batch may be partially accepted or retried.
 The aggregator checks the node identity against the experiment manifest. A node
 cannot change its node type by changing the request body.
 
+## JSON Lines export
+
+Accepted events are written to `outputs/<run-id>/events.jsonl`. Each line is a
+nested record ordered for scanning: `event.event_type` first, then the remaining
+event fields, then `node.node_id` and the other node fields.
+
+```json
+{"event":{"event_type":"training_metrics","event_id":"01JXYZ00000000000000000001","sequence":42,"occurred_at":"2026-09-18T14:32:10.245000+00:00","data":{"step":120,"round":8,"loss":0.421,"batch_accuracy":0.87,"samples":32}},"node":{"node_id":"normal-0","node_type":"normal","node_index":0},"experiment_id":"run-20260918-abc123"}
+```
+
 ## Event envelope
 
 | Field | Type | Required | Notes |
@@ -88,7 +98,8 @@ cannot change its node type by changing the request body.
 | `data` | object | yes | Fields defined by the event type. |
 
 `sequence` helps identify missing or out-of-order events. A sequence gap is
-recorded as a warning; it does not by itself make later events invalid.
+recorded as a warning; it does not by itself make later events invalid. A node uses
+one counter for all of its event types, so `node_started` is always sequence `0`.
 
 ## Event types
 
@@ -134,15 +145,40 @@ stores the original values and can calculate averages and peaks later.
     "step": 120,
     "round": 8,
     "loss": 0.421,
-    "accuracy": 0.87,
+    "batch_accuracy": 0.87,
     "samples": 32,
     "learning_rate": 0.05
   }
 }
 ```
 
+`batch_accuracy` is measured on the local training batch of `samples` examples, so
+it is noisy by construction and is not comparable between nodes. Use
+`eval_metrics` for accuracy that can be compared or plotted.
+
 The model and dataset are identified by the experiment manifest. They do not
 need to be repeated in every event.
+
+### `eval_metrics`
+
+```json
+{
+  "event_type": "eval_metrics",
+  "data": {
+    "step": 120,
+    "round": 8,
+    "eval_loss": 0.402,
+    "eval_accuracy": 0.86,
+    "samples": 4096
+  }
+}
+```
+
+Measured on a held-out set generated from the experiment seed, so every node in a
+run scores exactly the same samples. A node reports one of these before its first
+training step and one on every epoch transition. Two nodes that averaged
+successfully report the same numbers; a difference is evidence that their weights
+diverged.
 
 ### `averaging_started`
 
@@ -150,11 +186,16 @@ need to be repeated in every event.
 {
   "event_type": "averaging_started",
   "data": {
+    "step": 120,
     "round": 8,
     "local_epoch": 8
   }
 }
 ```
+
+Sent when a node observes that hivemind began an aggregation round for the epoch
+it just left. `occurred_at` is the time hivemind logged the start, not the time
+the event was sent.
 
 ### `averaging_completed`
 
@@ -162,14 +203,33 @@ need to be repeated in every event.
 {
   "event_type": "averaging_completed",
   "data": {
+    "step": 120,
     "round": 8,
     "local_epoch": 8,
-    "duration_seconds": 0.73,
-    "participants": 16,
-    "success": true
+    "observed": true,
+    "success": true,
+    "fallback": false,
+    "fallback_reason": null,
+    "group_size": 3,
+    "duration_seconds": 0.73
   }
 }
 ```
+
+One event per epoch transition, describing what hivemind actually did:
+
+| Field | Meaning |
+| ----- | ------- |
+| `observed` | `false` when the epoch advanced without an aggregation round of its own, for example when hivemind reloaded state from a peer that was ahead. The other fields are then not meaningful. |
+| `success` | Gradients were averaged with peers. |
+| `fallback` | hivemind used the local gradients instead of averaged ones. |
+| `fallback_reason` | hivemind's own reason, for example `no other peers` or `TimeoutError()`. `null` unless `fallback` is true. |
+| `group_size` | Number of peers in the averaging group, reported only on success. |
+| `duration_seconds` | From the start of the round to its outcome. |
+
+A run where every round reports `fallback: true` is a run where no aggregation
+happened, whatever the loss curves look like. See ADR 0013 for where these values
+come from.
 
 ### `node_finished`
 
@@ -200,6 +260,39 @@ need to be repeated in every event.
 
 Error messages are for diagnostics. They should not contain secrets or full
 model data.
+
+## Start barrier
+
+```http
+GET /api/v1/experiments/{experiment_id}/start-barrier?node_id=normal-0
+```
+
+```json
+{
+  "experiment_id": "run-20260918-abc123",
+  "node_id": "normal-0",
+  "start_group": "honest-network",
+  "ready": true,
+  "expected": 3,
+  "started": 3,
+  "started_nodes": ["normal-0", "normal-1", "normal-2"],
+  "pending_nodes": []
+}
+```
+
+`ready` is true once every node in the asking node's **start group** has sent a
+`node_started` event. Nodes poll this before their first training step so that no
+node trains alone against an empty swarm, which would otherwise make its early
+rounds incomparable with the rest of the run.
+
+The start group is the node's startup phase, taken from the manifest
+(`nodes[].start_group`). It is deliberately not the whole experiment: a node
+started by a later phase is supposed to join a swarm that is already training,
+which is what `startup.phases` and `wait_after_seconds` exist for. A run without
+`startup.phases` starts every node at once, so the whole experiment is one group
+named `all`. See ADR 0012.
+
+`node_id` must be in the manifest; an unknown node is a `404`.
 
 ## Acknowledgement
 

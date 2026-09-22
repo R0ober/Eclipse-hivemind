@@ -12,7 +12,7 @@ startup:
   phases:
     - name: honest-network
       node_types: [normal]
-      wait_after_seconds: 120         
+      wait_after_seconds: 0
     - name: adversarial-nodes
       node_types: [adversarial]
 
@@ -25,11 +25,26 @@ bootstrap:
 
 node_types:
   normal:
-    count: 7
-    image: eclipse-hivemind-node:dev
+    count: 3
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 384      # 6 peers x 32 x 2; must match every other type
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0    # paces the toy loop so a round is a real swarm round
+      eval_size: 4096
   adversarial:
     count: 3
-    image: eclipse-hivemind-node:dev  
+    image: eclipse-hivemind-node-honest:dev
     parameters:
       strategy: eclipse
       target_prefix: "expert."    # attack target; node derives its DHTID source from this
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 384
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0    # paces the toy loop so a round is a real swarm round
+      eval_size: 4096
