@@ -29,8 +29,7 @@ class NodeIdentity(BaseModel):
 
 
 class ExperimentNode(NodeIdentity):
-    # The cohort this node starts with. Nodes wait at the start barrier for their own
-    # cohort only, so a startup phase can still join a swarm that is already running.
+
     start_group: str = Field(default="all", min_length=1)
 
 

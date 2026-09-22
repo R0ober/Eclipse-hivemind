@@ -40,6 +40,7 @@ def build_node_env(
         "EXPERIMENT_NAME": config.experiment.name,
         "EXPERIMENT_SEED": str(config.experiment.seed),
         "ROUNDS": str(config.experiment.rounds),
+        "EXPERIMENT_TOTAL_NODES": str(config.total_nodes()),
         "NODE_ID": node_id,
         "NODE_TYPE": node_type_name,
         "NODE_INDEX": str(node_index),
