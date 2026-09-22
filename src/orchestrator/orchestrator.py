@@ -18,6 +18,9 @@ from .env import build_node_env
 AGGREGATOR_IMAGE = "eclipse-hivemind-aggregator:dev"
 AGGREGATOR_COMMAND = ["python", "-m", "eclipse_hivemind.aggregator"]
 FAKE_NODE_IMAGE = "alpine:3.20"
+# A run is bounded by rounds, not wall-clock (ADR 0006), and one round is now a
+# real aggregation round, so the ceiling has to cover matchmaking for every round.
+TRAINING_TIMEOUT_SECONDS = 3600
 
 
 def fake_node_command(node_id: str) -> list[str]:
@@ -52,15 +55,39 @@ def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
     ]
 
 
+def start_groups(config: ExperimentConfig) -> dict[str, str]:
+    """Map each node type to the cohort it starts with.
+
+    Nodes wait at the aggregator's start barrier for their own cohort, so a phase
+    that starts later still joins a swarm that is already training - which is the
+    point of startup.phases (ADR 0009). Without phases every node starts at once
+    and the whole experiment is one cohort.
+    """
+    if not config.startup.phases:
+        return {node_type_name: "all" for node_type_name in config.node_types}
+
+    groups: dict[str, str] = {}
+    for phase in config.startup.phases:
+        for node_type_name in phase.node_types:
+            groups.setdefault(node_type_name, phase.name)
+    # A node type named in no phase is never started; keep it out of every cohort
+    # so it cannot hold the barrier closed for node types that do start.
+    for node_type_name in config.node_types:
+        groups.setdefault(node_type_name, f"unscheduled:{node_type_name}")
+    return groups
+
+
 def build_experiment_manifest(
     config: ExperimentConfig,
     run_id: str,
 ) -> str:
+    groups = start_groups(config)
     nodes = [
         ExperimentNode(
             node_id=f"{node_type_name}-{node_index}",
             node_type=node_type_name,
             node_index=node_index,
+            start_group=groups[node_type_name],
         )
         for node_type_name, node_type in config.node_types.items()
         for node_index in range(node_type.count)
@@ -280,7 +307,7 @@ def run(
                 backend.wait_for_log(
                     node["container_id"],
                     "TRAINING_COMPLETE=1",
-                    timeout=600,
+                    timeout=TRAINING_TIMEOUT_SECONDS,
                 )
 
         yield network_id, aggregator_id, nodes

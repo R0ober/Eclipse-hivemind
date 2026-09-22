@@ -13,6 +13,7 @@ class EventType(StrEnum):
     NODE_STARTED = "node_started"
     RESOURCE_SAMPLE = "resource_sample"
     TRAINING_METRICS = "training_metrics"
+    EVAL_METRICS = "eval_metrics"
     AVERAGING_STARTED = "averaging_started"
     AVERAGING_COMPLETED = "averaging_completed"
     NODE_FINISHED = "node_finished"
@@ -28,7 +29,9 @@ class NodeIdentity(BaseModel):
 
 
 class ExperimentNode(NodeIdentity):
-    pass
+    # The cohort this node starts with. Nodes wait at the start barrier for their own
+    # cohort only, so a startup phase can still join a swarm that is already running.
+    start_group: str = Field(default="all", min_length=1)
 
 
 class ExperimentRegistration(BaseModel):
@@ -71,3 +74,16 @@ class ExperimentSummary(BaseModel):
     experiment_id: str
     event_count: int
     node_count: int
+
+
+class StartBarrier(BaseModel):
+    """Whether every node in one node's start group has reported node_started yet."""
+
+    experiment_id: str
+    node_id: str
+    start_group: str
+    ready: bool
+    expected: int
+    started: int
+    started_nodes: list[str]
+    pending_nodes: list[str]

@@ -12,6 +12,7 @@ from .models import (
     EventBatch,
     ExperimentRegistration,
     ExperimentSummary,
+    StartBarrier,
 )
 from .store import (
     EventConflict,
@@ -57,6 +58,25 @@ def create_app(
             accepted=accepted,
             duplicates=duplicates,
             last_sequence=last_sequence,
+        )
+
+    @application.get("/api/v1/experiments/{experiment_id}/start-barrier", response_model=StartBarrier)
+    def get_start_barrier(experiment_id: str, node_id: str) -> StartBarrier:
+        try:
+            start_group, started, pending = event_store.start_barrier(experiment_id, node_id)
+        except UnknownExperiment as error:
+            raise HTTPException(status_code=404, detail="unknown experiment") from error
+        except UnknownNode as error:
+            raise HTTPException(status_code=404, detail="unknown node") from error
+        return StartBarrier(
+            experiment_id=experiment_id,
+            node_id=node_id,
+            start_group=start_group,
+            ready=not pending,
+            expected=len(started) + len(pending),
+            started=len(started),
+            started_nodes=started,
+            pending_nodes=pending,
         )
 
     @application.get("/api/v1/experiments/{experiment_id}/summary", response_model=ExperimentSummary)
