@@ -57,6 +57,7 @@ peak and average memory, CPU, process count, and raw samples. Run one
 measurement per workload and keep the duration, interval, host, and image tag
 with the report.
 
+## Container logging 
 
 check docker events to debug container issues 
 ```bash
@@ -68,3 +69,10 @@ docker events \
   --format '{{.Time}} {{.Action}} {{.Actor.Attributes.name}}'
 
 ```
+
+Can also use to see prints from the network, run this in a new terminal after you have started a experiment.
+```bash
+bash scripts/check_docker_logs_for_experiment.sh 
+``
+
+

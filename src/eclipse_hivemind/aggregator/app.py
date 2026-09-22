@@ -21,9 +21,13 @@ from .store import (
 )
 
 
-def create_app(initial_registration: ExperimentRegistration | None = None,
+def create_app(
+    store: InMemoryEventStore | None = None,
+    initial_registration: ExperimentRegistration | None = None,
 ) -> FastAPI:
-    
+    event_store = store or InMemoryEventStore()
+    if initial_registration is not None:
+        event_store.register(initial_registration)
     application = FastAPI(title="Eclipse Hivemind Aggregator", version="1.0")
 
     @application.get("/health")
@@ -35,11 +39,13 @@ def create_app(initial_registration: ExperimentRegistration | None = None,
         if batch.experiment_id != experiment_id:
             raise HTTPException(status_code=400, detail="experiment ID does not match URL")
         try:
-            print(f"Experiment id{experiment_id}\nNode id{batch.node.node_id}\nNode type{batch.node.node_type}\n Node index{batch.node.node_index}\nbatch events{batch.events}\n")
-            accepted=1
-            duplicates=0
-            last_sequence=0
-
+            accepted, duplicates, last_sequence = event_store.submit(
+                experiment_id,
+                batch.node.node_id,
+                batch.node.node_type,
+                batch.node.node_index,
+                batch.events,
+            )
         except UnknownExperiment as error:
             raise HTTPException(status_code=404, detail="unknown experiment") from error
         except UnknownNode as error:
@@ -52,6 +58,17 @@ def create_app(initial_registration: ExperimentRegistration | None = None,
             last_sequence=last_sequence,
         )
 
+    @application.get("/api/v1/experiments/{experiment_id}/summary", response_model=ExperimentSummary)
+    def get_summary(experiment_id: str) -> ExperimentSummary:
+        try:
+            event_count, node_count = event_store.summary(experiment_id)
+        except UnknownExperiment as error:
+            raise HTTPException(status_code=404, detail="unknown experiment") from error
+        return ExperimentSummary(
+            experiment_id=experiment_id,
+            event_count=event_count,
+            node_count=node_count,
+        )
 
     return application
 
