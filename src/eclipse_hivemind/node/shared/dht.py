@@ -10,9 +10,9 @@ import hivemind
 LISTEN_PORT = 1337
 
 
-def initial_peers() -> list[str] | None:
+def initial_peers() -> list[str]:
     value = os.environ.get("INITIAL_PEERS", "").strip()
-    return value.split() or None
+    return value.split()
 
 
 def container_ip() -> str:

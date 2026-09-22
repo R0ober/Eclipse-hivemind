@@ -8,6 +8,7 @@ import json
 import secrets
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 from eclipse_hivemind.config import ExperimentConfig
 from eclipse_hivemind.aggregator.models import ExperimentRegistration, ExperimentNode
@@ -203,6 +204,8 @@ def run(
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}
     network_id = backend.create_network(network_name, labels)
+    output_directory = Path.cwd() / "outputs" / run_id
+    output_directory.mkdir(parents=True, exist_ok=True)
     created_containers: list[str] = []
     nodes: list[dict] = []
 
@@ -214,8 +217,10 @@ def run(
             env={
                 "EXPERIMENT_ID": run_id,
                 "EXPERIMENT_MANIFEST": build_experiment_manifest(config, run_id),
+                "EVENT_EXPORT_PATH": "/outputs/events.jsonl",
             },
             labels=labels,
+            volumes={str(output_directory): {"bind": "/outputs", "mode": "rw"}},
             command=AGGREGATOR_COMMAND,
             network_aliases=["aggregator"],
         )
@@ -269,6 +274,14 @@ def run(
                     )
                 if phase.wait_after_seconds:
                     time.sleep(phase.wait_after_seconds)
+
+        if not fake_nodes:
+            for node in nodes:
+                backend.wait_for_log(
+                    node["container_id"],
+                    "TRAINING_COMPLETE=1",
+                    timeout=600,
+                )
 
         yield network_id, aggregator_id, nodes
     finally:

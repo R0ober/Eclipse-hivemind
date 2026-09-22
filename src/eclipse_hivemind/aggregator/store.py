@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .models import Event, ExperimentRegistration, NodeIdentity
 
@@ -32,8 +34,9 @@ class StoredExperiment:
 class InMemoryEventStore:
     """Store experiment manifests and events until persistent storage exists."""
 
-    def __init__(self) -> None:
+    def __init__(self, export_path: Path | None = None) -> None:
         self._experiments: dict[str, StoredExperiment] = {}
+        self._export_path = export_path
 
     def register(self, registration: ExperimentRegistration) -> None:
         if registration.experiment_id in self._experiments:
@@ -75,6 +78,7 @@ class InMemoryEventStore:
                 continue
             experiment.events[event.event_id] = (known_node, event)
             accepted += 1
+            self._append_export(experiment_id, known_node, event)
             if last_sequence is None or event.sequence > last_sequence:
                 last_sequence = event.sequence
 
@@ -86,3 +90,21 @@ class InMemoryEventStore:
             raise UnknownExperiment(experiment_id)
         node_ids = {node.node_id for node, _event in experiment.events.values()}
         return len(experiment.events), len(node_ids)
+
+    def _append_export(
+        self,
+        experiment_id: str,
+        node: NodeIdentity,
+        event: Event,
+    ) -> None:
+        if self._export_path is None:
+            return
+
+        self._export_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "experiment_id": experiment_id,
+            "node": node.model_dump(mode="json"),
+            "event": event.model_dump(mode="json"),
+        }
+        with self._export_path.open("a", encoding="utf-8") as export_file:
+            export_file.write(json.dumps(record, sort_keys=True) + "\n")
