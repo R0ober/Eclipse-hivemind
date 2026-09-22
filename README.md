@@ -4,11 +4,13 @@ Experiments for studying eclipse attacks in Hivemind networks.
 
 ## Build the node image
 
-The node image is built from the repository root, because the Dockerfile copies the
-runner out of `src/`. The tag must match the `image` field in the config you run.
+The honest node is the only node type implemented so far — see ADR 0011. Its
+image is built from the repository root, because the Dockerfile copies
+`shared/` and `honest/runner.py` out of `src/`. The tag must match the `image`
+field in the config you run.
 
 ```bash
-docker build -f docker/node.Dockerfile -t eclipse-hivemind-node:dev .
+docker build -f docker/node-honest.Dockerfile -t eclipse-hivemind-node-honest:dev .
 ```
 
 The first build installs torch and hivemind, so expect it to take a while.
@@ -46,7 +48,7 @@ Measure one current DHT node for 30 seconds and write  JSON:
 
 ```bash
 python scripts/measure_container_resources.py \
-  --image eclipse-hivemind-node:dev \
+  --image eclipse-hivemind-node-honest:dev \
   --ready-pattern HIVEMIND_READY \
   --output measurements/dht-node.json
 ```

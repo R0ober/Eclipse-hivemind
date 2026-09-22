@@ -9,7 +9,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir "torch>=2.0" "hivemind>=1.1.0"
 
-COPY src/eclipse_hivemind/node/runner.py /app/runner.py
-COPY src/eclipse_hivemind/node/client.py /app/client.py
+COPY src/eclipse_hivemind/node/shared /app/shared
+COPY src/eclipse_hivemind/node/honest/runner.py /app/runner.py
 
 CMD ["python", "/app/runner.py"]

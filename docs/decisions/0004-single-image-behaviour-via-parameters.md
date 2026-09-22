@@ -25,4 +25,5 @@ Separate images are still supported in the configuration. This is useful when we
 
 - Each setting under parameters is automatically passed to the node as a PARAM_<KEY> environment variable. This means we can add new behaviour settings without changing the orchestrator.
 - Image versions should be fixed to a specific tag or digest before recording results. Using latest could cause different runs to use different versions of the software, making the results difficult to compare.
-- Status: Accepted.
+- Superseded by ADR 0011: once node behaviour grew past a single parameter switch, reading one runner file that dispatches on `PARAM_STRATEGY` became harder to follow than reading one file per node type. ADR 0011 moves behaviour selection back to the image, and keeps only genuinely shared code (the aggregator client, DHT bootstrap) common between node types.
+- Status: Superseded by ADR 0011.

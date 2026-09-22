@@ -26,10 +26,10 @@ bootstrap:
 node_types:
   normal:
     count: 7
-    image: eclipse-hivemind-node:dev
+    image: eclipse-hivemind-node-honest:dev
   adversarial:
     count: 3
-    image: eclipse-hivemind-node:dev  
+    image: eclipse-hivemind-node-honest:dev
     parameters:
       strategy: eclipse
       target_prefix: "expert."    # attack target; node derives its DHTID source from this

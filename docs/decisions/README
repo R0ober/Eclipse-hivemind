@@ -24,3 +24,4 @@ for lifecycle.
 | 0008 | [Capture node addresses from container logs rather than a shared volume](./0008-capture-node-address-from-logs.md) | Accepted |
 | 0009 | [Keep startup timing in its own config block](./0009-startup-timing-separate-from-node-types.md) | Accepted |
 | 0010 | [Let nodes send events and let the aggregator produce experiment results](./0010-aggregator-collects-node-events.md) | Proposed |
+| 0011 | [Give each node type its own explicit runner, sharing only genuinely common code](./0011-explicit-node-runner-per-type.md) | Accepted |
