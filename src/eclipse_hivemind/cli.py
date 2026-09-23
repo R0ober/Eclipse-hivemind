@@ -29,6 +29,7 @@ def main() -> None:
     for node_type, node_config in config.node_types.items():
         label = f"{node_type.title()} Nodes:"
         print(f"{label:<20}{node_config.count}")
+    print(f"{'Experiment Seed:':<20}{config.experiment.seed}")
     print(f"{'Seed Node Type:':<20}{config.bootstrap.seeds.node_type}")
 
     try:
@@ -36,7 +37,10 @@ def main() -> None:
             config,
             DockerBackend(),
             fake_nodes=args.fake_nodes,
-        ) as (network_id, aggregator_id, nodes):
+        ) as (run_id, network_id, aggregator_id, nodes):
+            # Machine-readable and on its own line: a sweep parses this to map a run
+            # back to the config and seed that produced it.
+            print(f"RUN_ID={run_id}", flush=True)
             print(f"{'Docker Network:':<20}{network_id}")
             print(f"{'Aggregator:':<20}{aggregator_id}")
             for node in nodes:
