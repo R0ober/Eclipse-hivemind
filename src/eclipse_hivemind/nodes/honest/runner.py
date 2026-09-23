@@ -14,10 +14,49 @@ import torch
 from shared import averaging_watch, client
 from shared.dht import start_dht
 
+# Four classes, one per quadrant of the feature plane. Four balanced classes put
+# the collapse floor at 0.25, so a model driven into answering one class is
+# visibly different from one that is learning - see ADR 0015.
+NUM_CLASSES = 4
+HIDDEN_UNITS = 16
+
 
 def generate_batch(size: int, generator: torch.Generator) -> tuple[torch.Tensor, torch.Tensor]:
     features = torch.randn(size, 2, generator=generator)
-    return features, (features[:, 0] * features[:, 1] > 0).long()
+    return features, 2 * (features[:, 1] > 0).long() + (features[:, 0] > 0).long()
+
+
+def build_model() -> torch.nn.Module:
+    """Quadrants are not linearly separable, so the hidden layer does real work."""
+    return torch.nn.Sequential(
+        torch.nn.Linear(2, HIDDEN_UNITS),
+        torch.nn.ReLU(),
+        torch.nn.Linear(HIDDEN_UNITS, NUM_CLASSES),
+    )
+
+
+def evaluate(
+    model: torch.nn.Module,
+    features: torch.Tensor,
+    labels: torch.Tensor,
+) -> tuple[float, float, list[float]]:
+    """Loss, accuracy, and how the predictions were spread across the classes.
+
+    The spread is the point: accuracy alone cannot tell a model that is learning
+    from one that has collapsed onto a single class, and gradient reversal
+    produces the collapse. Healthy is near [0.25, 0.25, 0.25, 0.25].
+    """
+    with torch.no_grad():
+        logits = model(features)
+        predictions = logits.argmax(dim=1)
+        return (
+            torch.nn.functional.cross_entropy(logits, labels).item(),
+            (predictions == labels).float().mean().item(),
+            [
+                (predictions == class_index).float().mean().item()
+                for class_index in range(NUM_CLASSES)
+            ],
+        )
 
 
 def train_and_report(
@@ -47,9 +86,26 @@ def train_and_report(
     )
     data_generator = torch.Generator().manual_seed(node_seed)
 
+    def report_eval(step: int, round: int) -> None:
+        eval_loss, eval_accuracy, predicted_class_fractions = evaluate(
+            model, eval_features, eval_labels
+        )
+        client.send_eval_metrics(
+            aggregator_endpoint=aggregator_endpoint,
+            **identity,
+            step=step,
+            round=round,
+            eval_loss=eval_loss,
+            eval_accuracy=eval_accuracy,
+            predicted_class_fractions=predicted_class_fractions,
+            samples=settings["eval_size"],
+        )
+
     try:
         step = 0
         epoch = optimizer.local_epoch
+        # Baseline before the first step, so every round has a point to improve on.
+        report_eval(step=0, round=epoch)
         while optimizer.local_epoch < rounds:
             step += 1
             features, labels = generate_batch(settings["batch_size"], data_generator)
@@ -99,19 +155,7 @@ def train_and_report(
                     group_size=observation["group_size"],
                     duration_seconds=observation["duration_seconds"],
                 )
-                with torch.no_grad():
-                    eval_logits = model(eval_features)
-                    eval_loss = torch.nn.functional.cross_entropy(eval_logits, eval_labels).item()
-                    eval_accuracy = (eval_logits.argmax(dim=1) == eval_labels).float().mean().item()
-                client.send_eval_metrics(
-                    aggregator_endpoint=aggregator_endpoint,
-                    **identity,
-                    step=step,
-                    round=optimizer.local_epoch,
-                    eval_loss=eval_loss,
-                    eval_accuracy=eval_accuracy,
-                    samples=settings["eval_size"],
-                )
+                report_eval(step=step, round=optimizer.local_epoch)
                 epoch = optimizer.local_epoch
 
             time.sleep(settings["step_delay_seconds"])
@@ -154,7 +198,7 @@ def main() -> None:
 
     torch.set_num_threads(1)
     torch.manual_seed(experiment_seed)
-    model = torch.nn.Sequential(torch.nn.Linear(2, 8), torch.nn.ReLU(), torch.nn.Linear(8, 2))
+    model = build_model()
     digest = hashlib.sha256()
     for name, tensor in sorted(model.state_dict().items()):
         digest.update(name.encode())

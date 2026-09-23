@@ -28,3 +28,4 @@ for lifecycle.
 | 0012 | [Release nodes into training from a per-phase start barrier in the aggregator](./0012-aggregator-start-barrier.md) | Accepted |
 | 0013 | [Take averaging evidence from hivemind's log lines, and pace the loop so rounds are real](./0013-averaging-evidence-from-hivemind-logs.md) | Accepted |
 | 0014 | [Measure accuracy on a fixed held-out set shared by every node](./0014-fixed-held-out-eval-set.md) | Accepted |
+| 0015 | [Use four classes so prediction collapse is visible](./0015-four-class-task-so-collapse-is-visible.md) | Accepted |

@@ -174,10 +174,17 @@ def send_eval_metrics(
     round: int,
     eval_loss: float,
     eval_accuracy: float,
+    predicted_class_fractions: list[float],
     samples: int,
     timeout: float = 5.0,
 ) -> dict:
-    """Send one measurement on the held-out evaluation set shared by every node."""
+    """Send one measurement on the held-out evaluation set shared by every node.
+
+    `predicted_class_fractions` carries how the predictions were spread across the
+    classes. Accuracy on its own cannot separate a model that is learning from one
+    that has collapsed onto a single class, and both a healthy run and an attacked
+    run can sit at the same accuracy while predicting very different things.
+    """
     return _send_event(
         aggregator_endpoint=aggregator_endpoint,
         experiment_id=experiment_id,
@@ -190,6 +197,7 @@ def send_eval_metrics(
             "round": round,
             "eval_loss": eval_loss,
             "eval_accuracy": eval_accuracy,
+            "predicted_class_fractions": predicted_class_fractions,
             "samples": samples,
         },
         timeout=timeout,

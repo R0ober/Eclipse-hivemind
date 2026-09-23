@@ -46,6 +46,12 @@ eclipse-hivemind --config-path configs/adversarial-ratio-30.yaml --fake-nodes
 
 The honest-node image trains a small generated-data classifier through
 `hivemind.Optimizer`, which coordinates gradient aggregation through the DHT.
+The task is four classes, one per quadrant of the feature plane. Each node type
+defines it in its own runner (ADR 0011), so honest nodes that should average
+together must be kept in step by hand - `model_fingerprint` in `node_started` is
+how a run is checked for peers that drifted. Four balanced classes put the
+collapse floor at 0.25, so a model that has been driven into answering one class
+is visibly different from one that is learning - see ADR 0015.
 `experiment.rounds` counts aggregation rounds (hivemind epochs), not local steps.
 Node-type `parameters` configure the workload through `batch_size`,
 `learning_rate`, `target_batch_size`, `matchmaking_time`, `averaging_timeout`,
@@ -64,7 +70,10 @@ Each node reports:
   whether gradients were averaged, the group size, or the reason hivemind fell
   back to local gradients — see ADR 0013.
 * `eval_metrics` before training and after every round, on a held-out set shared
-  by every node in the run.
+  by every node in the run, including `predicted_class_fractions`. Read that
+  alongside accuracy: all the mass on one class at ~0.25 accuracy is a collapsed
+  model, not a model that has yet to learn. `eval_loss` is the metric to trust
+  when the two disagree.
 
 `step_delay_seconds` matters more than it looks: a step on this model takes about
 a millisecond, and without pacing a peer reaches `target_batch_size` alone before
