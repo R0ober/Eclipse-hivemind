@@ -4,6 +4,7 @@ model. Everything else is deliberately identical to the honest node."""
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import signal
@@ -12,6 +13,7 @@ from datetime import datetime, timezone
 
 import hivemind
 import torch
+from hivemind.optim.grad_averager import GradientAverager
 
 from shared import averaging_watch, client
 from shared.dht import start_dht
@@ -72,6 +74,16 @@ def train_and_report(
     rounds: int,
 ) -> None:
     watcher = averaging_watch.attach()
+    group_options = {
+        key: settings[key]
+        for key in ("target_group_size", "min_group_size")
+        if settings[key]
+    }
+    # averager_opts reaches only the state averager in hivemind 1.1.12, so the gradient
+    # averager - the one that forms the groups we measure - is configured separately.
+    grad_averager_factory = (
+        functools.partial(GradientAverager, **group_options) if group_options else None
+    )
     optimizer = hivemind.Optimizer(
         dht=dht,
         run_id=f"{identity['experiment_id']}:toy-classifier:v1",
@@ -82,6 +94,8 @@ def train_and_report(
         averaging_timeout=settings["averaging_timeout"],
         use_local_updates=False,
         verbose=True,
+        averager_opts=group_options or None,
+        grad_averager_factory=grad_averager_factory,
     )
     eval_features, eval_labels = generate_batch(
         settings["eval_size"], torch.Generator().manual_seed(experiment_seed)
@@ -188,6 +202,8 @@ def main() -> None:
         "step_delay_seconds": float(os.environ.get("PARAM_STEP_DELAY_SECONDS", "1")),
         "eval_size": int(os.environ.get("PARAM_EVAL_SIZE", "4096")),
         "start_barrier_timeout": float(os.environ.get("PARAM_START_BARRIER_TIMEOUT", "180")),
+        "target_group_size": int(os.environ.get("PARAM_TARGET_GROUP_SIZE", "0")),
+        "min_group_size": int(os.environ.get("PARAM_MIN_GROUP_SIZE", "0")),
     }
     if min(settings["batch_size"], settings["target_batch_size"], settings["eval_size"]) <= 0:
         raise ValueError("batch sizes must be greater than zero")
@@ -195,6 +211,11 @@ def main() -> None:
         raise ValueError("averaging timeout must be greater than matchmaking time")
     if settings["step_delay_seconds"] < 0:
         raise ValueError("step delay must not be negative")
+    for key in ("target_group_size", "min_group_size"):
+        if settings[key] and settings[key] < 2:
+            raise ValueError(f"{key} must be at least 2, or 0 to let hivemind choose")
+    if 0 < settings["target_group_size"] < settings["min_group_size"]:
+        raise ValueError("min_group_size must not exceed target_group_size")
 
     rounds = int(os.environ["ROUNDS"])
     if rounds <= 0:
