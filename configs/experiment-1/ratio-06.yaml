@@ -1,0 +1,47 @@
+schema_version: 1
+
+# Experiment 1, cell T07: 6 of 10 peers reverse their gradients.
+#
+# target_batch_size is swarm-wide: 10 peers x 128 samples = 1280, so each
+# peer takes 4 steps of 32 per aggregation round.
+#
+# Nodes start in one cohort: join order is held constant so the only thing that
+# differs between cells of this sweep is the number of malicious peers. See configs/experiment-1/README.md.
+
+experiment:
+  name: exp1-ratio-06
+  seed: 7
+  rounds: 20
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+node_types:
+  normal:
+    count: 4
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+  adversarial:
+    count: 6
+    image: eclipse-adversary-reverse-gradient:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096

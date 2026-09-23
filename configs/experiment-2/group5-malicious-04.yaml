@@ -1,0 +1,55 @@
+schema_version: 1
+
+# Experiment 2, cell G03: 4 of 10 peers reverse their gradients,
+# averaging in groups of 5 rather than the whole swarm.
+#
+# min_group_size is set equal to target_group_size, so a round averages exactly 5
+# peers or disbands and falls back to local gradients. Hivemind's default min of 2
+# would average with whoever arrived before matchmaking_time ran out, making group
+# size vary round to round - see ADR 0016. Which peers meet is still not controlled,
+# so the malicious count per group varies even though the size does not.
+#
+# Nodes start in one cohort: join order is held constant so the only thing that
+# differs between cells of this sweep is the number of malicious peers, at a fixed requested group size. See configs/experiment-2/README.md.
+
+experiment:
+  name: exp2-group5-malicious-04
+  seed: 7
+  rounds: 20
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+node_types:
+  normal:
+    count: 6
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5        # equal to target: exactly 5 peers or no averaging
+  adversarial:
+    count: 4
+    image: eclipse-adversary-reverse-gradient:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5        # equal to target: exactly 5 peers or no averaging
