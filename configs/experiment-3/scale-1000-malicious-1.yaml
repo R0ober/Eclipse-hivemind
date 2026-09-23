@@ -1,0 +1,62 @@
+schema_version: 1
+
+# Experiment 3, cell S02: 1000 peers, 1 of them reversing its gradients.
+#
+# A malicious ratio of 0.001 - two orders of magnitude below the smallest cell in
+# experiment 1, which is 1 in 10. With strict groups of 5 the adversary is in one
+# group per round out of 200, so it can touch at most 4 honest peers per round and
+# contributes 1/5 of that group's average. The expected result is no visible effect;
+# the point is to bound how small a minority stops mattering.
+#
+# Same per-peer workload as experiments 1 and 2 - batch 32, 128 samples per peer
+# per round, strict groups of 5 - so a cell here is comparable with a cell there
+# and the only thing that changed is the swarm size. target_batch_size is swarm-wide:
+# 1000 peers x 128 = 128000.
+#
+# Sized for a 1 TB host: ~650 MB per node measured, so 1000 peers is about 650 GB.
+# matchmaking_time and start_barrier_timeout are raised because 1000 containers take
+# far longer to come up and find each other than 10 do.
+
+experiment:
+  name: exp3-scale-1000-malicious-1
+  seed: 7
+  rounds: 20
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+node_types:
+  normal:
+    count: 999
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 128000
+      target_group_size: 5
+      min_group_size: 5        # equal to target: a round averages exactly this many peers or not at all
+      matchmaking_time: 30
+      averaging_timeout: 90
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      start_barrier_timeout: 900
+  adversarial:
+    count: 1
+    image: eclipse-adversary-reverse-gradient:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 128000
+      target_group_size: 5
+      min_group_size: 5        # equal to target: a round averages exactly this many peers or not at all
+      matchmaking_time: 30
+      averaging_timeout: 90
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      start_barrier_timeout: 900
