@@ -59,10 +59,7 @@ def _send_event(
             }
         ],
     }
-    url =  (
-        f"{aggregator_endpoint.rstrip('/')}/api/v1/experiments/"
-        f"{experiment_id}/events"
-    )   
+    url = f"{aggregator_endpoint.rstrip('/')}/api/v1/experiments/{experiment_id}/events"
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -319,8 +316,8 @@ def wait_for_start_barrier(
     node's cohort only, so a later startup phase joins a swarm already in progress.
     """
     url = (
-        _experiment_url(aggregator_endpoint, experiment_id, "start-barrier")
-        + f"?node_id={quote(node_id)}"
+        f"{aggregator_endpoint.rstrip('/')}/api/v1/experiments/"
+        f"{experiment_id}/start-barrier?node_id={quote(node_id)}"
     )
     deadline = time.monotonic() + timeout
     while True:

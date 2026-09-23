@@ -10,6 +10,6 @@ WORKDIR /app
 RUN pip install --no-cache-dir "torch>=2.0" "hivemind>=1.1.0"
 
 COPY src/eclipse_hivemind/nodes/shared /app/shared
-COPY src/eclipse_hivemind/nodes/honest/runner.py /app/runner.py
+COPY src/eclipse_hivemind/nodes/adversary-reverse-gradient/runner.py /app/runner.py
 
 CMD ["python", "/app/runner.py"]
