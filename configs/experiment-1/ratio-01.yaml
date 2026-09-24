@@ -5,6 +5,10 @@ schema_version: 1
 # target_batch_size is swarm-wide: 10 peers x 128 samples = 1280, so each
 # peer takes 4 steps of 32 per aggregation round.
 #
+# The group is pinned to all 10 peers (target == min, ADR 0016), so every round
+# averages exactly this cell's malicious ratio. Unpinned, hivemind averages with
+# whoever assembled in time and the ratio inside a group varies round to round.
+#
 # Nodes start in one cohort: join order is held constant so the only thing that
 # differs between cells of this sweep is the number of malicious peers. See configs/experiment-1/README.md.
 
@@ -30,6 +34,8 @@ node_types:
       batch_size: 32
       learning_rate: 0.05
       target_batch_size: 1280
+      target_group_size: 10
+      min_group_size: 10        # equal to target: all 10 peers in one group, or no averaging
       matchmaking_time: 10
       averaging_timeout: 30
       step_delay_seconds: 1.0
@@ -41,6 +47,8 @@ node_types:
       batch_size: 32
       learning_rate: 0.05
       target_batch_size: 1280
+      target_group_size: 10
+      min_group_size: 10        # equal to target: all 10 peers in one group, or no averaging
       matchmaking_time: 10
       averaging_timeout: 30
       step_delay_seconds: 1.0

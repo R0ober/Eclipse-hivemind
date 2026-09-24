@@ -43,7 +43,7 @@ RUN_FIELDS = [
 ]
 
 ROUND_FIELDS = [
-    "run_id", "config", "round", "node_type", "nodes",
+    "run_id", "config", "round", "node_id", "node_type",
     "eval_loss", "eval_accuracy", "max_class_fraction",
 ]
 
@@ -74,7 +74,7 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
     started: set[str] = set()
     errors = 0
 
-    # round -> node_type -> list of (loss, accuracy, max_class_fraction)
+    # round -> node_type -> list of (node_id, loss, accuracy, max_class_fraction)
     evals: dict[int, dict[str, list[tuple]]] = defaultdict(lambda: defaultdict(list))
     samples: dict[str, int] = defaultdict(int)
     averaging: dict[str, list[dict]] = defaultdict(list)
@@ -96,7 +96,7 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
         elif kind == "eval_metrics":
             fractions = data.get("predicted_class_fractions") or []
             evals[data["round"]][node_type].append(
-                (data["eval_loss"], data["eval_accuracy"], max(fractions) if fractions else None)
+                (node_id, data["eval_loss"], data["eval_accuracy"], max(fractions) if fractions else None)
             )
         elif kind == "averaging_completed":
             averaging[node_type].append(data)
@@ -107,20 +107,25 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
     for node_type in node_type_of.values():
         counts[node_type] += 1
 
+    # One row per node, not a mean. With strict groups the peers hold different
+    # weights, so a per-round mean can describe a model that no peer actually has -
+    # at 6 adversaries in experiment 2 the honest peers ended between 1.12 and 4.84
+    # while their mean was 2.05. Aggregating is the analysis's decision, not this
+    # script's.
     rounds = []
     for round_number in sorted(evals):
         for node_type, measurements in sorted(evals[round_number].items()):
-            fractions = [f for _, _, f in measurements if f is not None]
-            rounds.append({
-                "run_id": run_id,
-                "config": meta.get("config", ""),
-                "round": round_number,
-                "node_type": node_type,
-                "nodes": len(measurements),
-                "eval_loss": mean([loss for loss, _, _ in measurements]),
-                "eval_accuracy": mean([accuracy for _, accuracy, _ in measurements]),
-                "max_class_fraction": mean(fractions),
-            })
+            for node_id, loss, accuracy, fraction in sorted(measurements):
+                rounds.append({
+                    "run_id": run_id,
+                    "config": meta.get("config", ""),
+                    "round": round_number,
+                    "node_id": node_id,
+                    "node_type": node_type,
+                    "eval_loss": loss,
+                    "eval_accuracy": accuracy,
+                    "max_class_fraction": fraction if fraction is not None else "",
+                })
 
     final_round = max(evals) if evals else ""
     final = evals.get(final_round, {}) if evals != {} else {}
@@ -149,13 +154,13 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
         "target_group_size": settings.get("target_group_size", ""),
         "min_group_size": settings.get("min_group_size", ""),
         "final_round": final_round,
-        "honest_eval_loss": mean(final_of("normal", 0)),
-        "honest_eval_loss_sd": spread(final_of("normal", 0)),
-        "honest_eval_accuracy": mean(final_of("normal", 1)),
-        "honest_eval_accuracy_sd": spread(final_of("normal", 1)),
-        "honest_max_class_fraction": mean(final_of("normal", 2)),
-        "adversarial_eval_loss": mean(final_of("adversarial", 0)),
-        "adversarial_eval_accuracy": mean(final_of("adversarial", 1)),
+        "honest_eval_loss": mean(final_of("normal", 1)),
+        "honest_eval_loss_sd": spread(final_of("normal", 1)),
+        "honest_eval_accuracy": mean(final_of("normal", 2)),
+        "honest_eval_accuracy_sd": spread(final_of("normal", 2)),
+        "honest_max_class_fraction": mean(final_of("normal", 3)),
+        "adversarial_eval_loss": mean(final_of("adversarial", 1)),
+        "adversarial_eval_accuracy": mean(final_of("adversarial", 2)),
         "averaging_success_rate": mean([1.0 if row["success"] else 0.0 for row in all_averaging]),
         "honest_averaging_success_rate": mean([1.0 if row["success"] else 0.0 for row in honest_averaging]),
         "mean_group_size": mean(group_sizes),
