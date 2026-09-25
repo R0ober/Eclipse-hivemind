@@ -2,8 +2,8 @@ schema_version: 1
 
 experiment:
   name: adversarial-ratio-30      
-  seed: 42                       
-  rounds: 50                      
+  seed: 7                       
+  rounds: 10                      
 
 aggregator:
   endpoint: http://aggregator:8080   
@@ -12,7 +12,7 @@ startup:
   phases:
     - name: honest-network
       node_types: [normal]
-      wait_after_seconds: 0
+      wait_after_seconds: 5
     - name: adversarial-nodes
       node_types: [adversarial]
 
@@ -36,8 +36,8 @@ node_types:
       step_delay_seconds: 1.0    # paces the toy loop so a round is a real swarm round
       eval_size: 4096
   adversarial:
-    count: 3
-    image: eclipse-hivemind-node-honest:dev
+    count: 4
+    image: eclipse-adversary-reverse-gradient:dev
     parameters:
       strategy: eclipse
       target_prefix: "expert."    # attack target; node derives its DHTID source from this
