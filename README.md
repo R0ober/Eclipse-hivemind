@@ -1,130 +1,219 @@
 # Eclipse Hivemind
 
-Experiments for studying eclipse attacks in Hivemind networks.
+> A test harness for studying eclipse and gradient-poisoning attacks on [Hivemind](https://github.com/learning-at-home/hivemind) decentralized training swarms.
 
-## Build the node image
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Hivemind](https://img.shields.io/badge/hivemind-1.1.12-orange.svg)](https://github.com/learning-at-home/hivemind)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-pytest-informational.svg)](tests/)
 
-The honest node is the only node type implemented so far — see ADR 0011. Its
-image is built from the repository root, because the Dockerfile copies
-`shared/` and `honest/runner.py` out of `src/`. The tag must match the `image`
-field in the config you run.
+Hivemind trains neural networks across untrusted peers that find each other over a
+Kademlia DHT and average their gradients with `hivemind.Optimizer`. This project
+spins up a swarm of Docker-isolated nodes on one host, drops in adversarial peers,
+and records exactly what the swarm did each round and whether gradients were really
+averaged, with whom, and what it did to every honest peer's model.
 
-```bash
-docker build -f docker/node-honest.Dockerfile -t eclipse-hivemind-node-honest:dev .
+It answers questions like *how many poisoned peers does averaging tolerate?* and
+*can a minority isolate a victim inside its own averaging group?* with event logs
+you can plot, not just loss curves that hide the mechanism.
+
+---
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Running an experiment](#running-an-experiment)
+- [Analysing results](#analysing-results)
+- [Configuration](#configuration)
+- [Node types](#node-types)
+- [Project layout](#project-layout)
+- [Design decisions](#design-decisions)
+
+## How it works
+
+An **orchestrator** reads a YAML config, creates a Docker bridge network, and
+starts one container per node plus an **aggregator**. Each node joins the DHT,
+trains a small classifier through `hivemind.Optimizer`, and reports events,
+startup, per step metrics, per-round averaging outcomes, held out evaluation, to
+the aggregator over HTTP. The aggregator writes every accepted event to
+`outputs/<run-id>/events.jsonl`, one JSON object per line, ready for analysis.
+
+Node behaviour lives entirely in the node images, so the orchestrator stays
+behaviour lives only in the nodes: an honest node and an adversary differ only in their runner,
+selected per node type in the config.
+
+```mermaid
+flowchart LR
+    config["config.yaml"] --> orch["orchestrator"]
+    orch --> net
+
+    subgraph net["Docker network"]
+        agg["aggregator"]
+        n1["node: honest"]
+        n2["node: honest"]
+        adv["node: adversary"]
+    end
+
+    agg --> events["outputs/#lt;run-id#gt;/events.jsonl"]
 ```
 
-The first build installs torch and hivemind, so expect it to take a while.
+## Requirements
 
-## Build and run the aggregator
+- Python 3.12+
+- Docker (the orchestrator drives it through the Docker SDK)
+- ~650 MB RAM per node — a 10-node run is comfortable on a laptop
 
-Build the aggregator image from the repository root:
+## Quick start
 
 ```bash
-docker build -f docker/aggregator.Dockerfile -t eclipse-hivemind-aggregator:dev .
+git clone git@github.com:R0ober/Eclipse-hivemind.git
+cd Eclipse-hivemind
+
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+# Build the node and aggregator images (first build pulls torch + hivemind, ~minutes)
+docker build -f docker/node-honest.Dockerfile              -t eclipse-hivemind-node-honest:dev .
+docker build -f docker/node-adversary-reverse-gradient.Dockerfile -t eclipse-adversary-reverse-gradient:dev .
+docker build -f docker/aggregator.Dockerfile              -t eclipse-hivemind-aggregator:dev .
+
+# Validate a config and run a small all-honest swarm
+eclipse-hivemind --config-path configs/all-honest.yaml
 ```
 
-## Validate a configuration
+Results land in `outputs/<run-id>/events.jsonl`.
+
+## Running an experiment
+
+Configs are grouped into experiments under `configs/`. Run a whole sweep and
+collect a manifest with one command:
 
 ```bash
-python3 -m eclipse_hivemind.cli --config-path configs/adversarial-ratio-30.yaml
+python scripts/run_experiment.py configs/experiment-1
 ```
 
-When the project is installed in editable mode (using pip install -e .), the command-line entry point is:
+This runs every config in the directory, writes each run's log to
+`outputs/experiment-1-logs/`, and records a manifest mapping each config to the
+run id it produced. A failed cell is recorded and the sweep continues; re-run with
+`--skip-existing` to resume.
+
+The bundled experiments:
+
+| Experiment | Question |
+| ---------- | -------- |
+| [experiment-1](configs/experiment-1/) | How does gradient reversal scale with the fraction of malicious peers? (0–10 of 10) |
+| [experiment-2](configs/experiment-2/) | With strict averaging groups of 5, does the attack isolate individual victims? |
+| [experiment-3](configs/experiment-3/) | Reproducibility: rerun experiments 1 and 2 many times and measure how much the numbers move. |
+
+## Analysing results
+
+Turn the raw event logs into tidy CSVs:
 
 ```bash
-eclipse-hivemind --config-path configs/adversarial-ratio-30.yaml
+python scripts/summarise_runs.py --manifest outputs/experiment-1-manifest.csv --csv analysis/experiment-1/
 ```
 
-For Docker lifecycle testing before the Hivemind node image exists, use the
-explicit Alpine test mode:
+This writes two files:
+
+- **`runs.csv`** : one row per run: final loss and accuracy, averaging success
+  rate, realised group sizes, and integrity columns (did every node start? did
+  they share one initial model?).
+- **`rounds.csv`** : one row per run, round and node: the full per node time
+  series, nothing averaged away.
+
+Install the plotting extras and explore in the notebook:
 
 ```bash
-eclipse-hivemind --config-path configs/adversarial-ratio-30.yaml --fake-nodes
+pip install -e ".[analysis]"
+jupyter lab analysis/experiment-1/analysis.ipynb
 ```
 
-## Example of a node
+> **Read `averaging_success_rate` before any loss.** A run where averaging quietly
+> stopped is measuring a broken swarm, not a successful attack and the two look
+> identical in a loss curve.
 
-The honest-node image trains a small generated-data classifier through
-`hivemind.Optimizer`, which coordinates gradient aggregation through the DHT.
-The task is four classes, one per quadrant of the feature plane. Each node type
-defines it in its own runner (ADR 0011), so honest nodes that should average
-together must be kept in step by hand - `model_fingerprint` in `node_started` is
-how a run is checked for peers that drifted. Four balanced classes put the
-collapse floor at 0.25, so a model that has been driven into answering one class
-is visibly different from one that is learning - see ADR 0015.
-`experiment.rounds` counts aggregation rounds (hivemind epochs), not local steps.
-Node-type `parameters` configure the workload through `batch_size`,
-`learning_rate`, `target_batch_size`, `matchmaking_time`, `averaging_timeout`,
-`step_delay_seconds`, `eval_size`, and `start_barrier_timeout` — see
-`docs/configuration-reference.md`.
+## Configuration
 
-Each node reports:
+A config declares the swarm and the workload. Minimal example:
 
-* `node_started`, with the settings it resolved and a fingerprint of its initial
-  weights, then waits at the aggregator's start barrier until the other nodes of
-  its own startup phase have started, so no node trains alone and a later phase
-  still joins a swarm that is already training.
-* `training_metrics` per local step, with `batch_accuracy` measured on that
-  step's training batch.
-* `averaging_started` and `averaging_completed` per aggregation round, reporting
-  whether gradients were averaged, the group size, or the reason hivemind fell
-  back to local gradients — see ADR 0013.
-* `eval_metrics` before training and after every round, on a held-out set shared
-  by every node in the run, including `predicted_class_fractions`. Read that
-  alongside accuracy: all the mass on one class at ~0.25 accuracy is a collapsed
-  model, not a model that has yet to learn. `eval_loss` is the metric to trust
-  when the two disagree.
+```yaml
+schema_version: 1
 
-`step_delay_seconds` matters more than it looks: a step on this model takes about
-a millisecond, and without pacing a peer reaches `target_batch_size` alone before
-hivemind has heard from anyone else, so nothing is ever averaged.
+experiment:
+  name: my-swarm
+  seed: 7
+  rounds: 20
 
-`configs/all-honest.yaml` is the reference run for checking that rounds really are
-aggregation rounds; `configs/averaging-timeout-tiny.yaml` is the negative control
-where rounds are expected to fall back.
+aggregator:
+  endpoint: http://aggregator:8080
 
-
-```bash
-eclipse-hivemind --config-path configs/adversarial-ratio-30.yaml
+node_types:
+  normal:
+    count: 10
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      target_batch_size: 1280   # swarm-wide, not per peer
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
 ```
 
-The aggregator writes accepted events to `outputs/<run-id>/events.jsonl`. Each
-line contains the experiment ID, node identity, and one event, so it can be
-loaded directly by later analysis code.
+`bootstrap` controls the peer topology and `startup.phases` controls join order,
+so adversaries can arrive after the honest network forms. See
+[`docs/configuration-reference.md`](docs/configuration-reference.md) for every
+field and [`docs/aggregator-api-reference.md`](docs/aggregator-api-reference.md)
+for the event schema.
 
-## Measure container resources
+## Node types
 
-Measure one current DHT node for 30 seconds and write  JSON:
+Each node type is one image built from its own runner, sharing only the DHT
+bootstrap, HTTP client, and log parsing ([ADR 0011](docs/decisions/0011-explicit-node-runner-per-type.md)).
 
-```bash
-python scripts/measure_container_resources.py \
-  --image eclipse-hivemind-node-honest:dev \
-  --ready-pattern HIVEMIND_READY \
-  --output measurements/dht-node.json
-```
+| Node | Behaviour |
+| ---- | --------- |
+| `honest` | Trains a 4-class quadrant classifier and averages normally. |
+| `adversary-reverse-gradient` | Identical to honest, but negates its gradients before averaging to drag the swarm's model toward a worse one. |
 
-The same script can measure a future training node or aggregator by changing
-`--image` and, when needed, `--command`. It records image size, startup time,
-peak and average memory, CPU, process count, and raw samples. Run one
-measurement per workload and keep the duration, interval, host, and image tag
-with the report.
+Nodes report `averaging_completed` events parsed from Hivemind's own logs, so a run
+records whether gradients were *actually* averaged with peers or silently fell back
+to local gradients ([ADR 0013](docs/decisions/0013-averaging-evidence-from-hivemind-logs.md)).
 
-## Container logging 
-
-check docker events to debug container issues 
-```bash
-docker events \
-  --filter type=container \
-  --filter event=create \
-  --filter event=start \
-  --filter event=destroy \
-  --format '{{.Time}} {{.Action}} {{.Actor.Attributes.name}}'
+## Project layout
 
 ```
+configs/            experiment configs, grouped by experiment
+docker/             Dockerfiles for each node type and the aggregator
+docs/
+  decisions/        architecture decision records (ADRs)
+  *.md              configuration and API reference
+scripts/            run sweeps, summarise results, measure resources
+src/
+  orchestrator/     Docker lifecycle, node environment, backend protocol
+  eclipse_hivemind/
+    aggregator/     FastAPI event collector + in-memory store
+    nodes/          honest/ adversary/ shared/ runners
+analysis/           result CSVs and notebooks
+tests/              pytest suite
+```
 
-Can also use to see prints from the network, run this in a new terminal after you have started a experiment.
+## Design decisions
+
+Non-obvious choices are recorded as ADRs in
+[`docs/decisions/`](docs/decisions/) covering everything from why the
+run id is generated by the orchestrator to why the training task uses four classes
+and so on.
+[index](docs/decisions/README).
+
+## Development
+
 ```bash
-bash scripts/check_docker_logs_for_experiment.sh 
-``
+pip install -e ".[test]"
+pytest
+```
 
+## License
 
+[MIT](LICENSE)
