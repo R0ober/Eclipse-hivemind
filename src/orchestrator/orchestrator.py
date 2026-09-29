@@ -223,8 +223,12 @@ def run(
     backend: ContainerBackend,
     run_id: str | None = None,
     fake_nodes: bool = False,
-) -> Iterator[tuple[str, str, list[dict]]]:
-    """Create the run network, yield it with the started nodes, and clean up on exit."""
+) -> Iterator[tuple[str, str, str, list[dict]]]:
+    """Create the run network, yield it with the started nodes, and clean up on exit.
+
+    Yields the run id first: it names the output directory, and a caller running a
+    sweep needs it to record which config and seed produced which run.
+    """
 
     validate_runtime_config(config)
     run_id = run_id or _new_run_id()
@@ -310,7 +314,7 @@ def run(
                     timeout=TRAINING_TIMEOUT_SECONDS,
                 )
 
-        yield network_id, aggregator_id, nodes
+        yield run_id, network_id, aggregator_id, nodes
     finally:
         for container_id in reversed(created_containers):
             with contextlib.suppress(Exception):

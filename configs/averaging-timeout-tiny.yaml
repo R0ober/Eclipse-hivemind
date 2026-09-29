@@ -1,0 +1,37 @@
+schema_version: 1
+
+# Negative control for the averaging events: matchmaking_time and averaging_timeout
+# are too small for a group of three to assemble and finish an all-reduce. A run of
+# this config reports groups of two instead of three, one peer that never averages,
+# and averaging_completed events with fallback=true carrying hivemind's own reason
+# ("could not find a group", "TimeoutError()").
+#
+# averaging_timeout has to stay above matchmaking_time: hivemind schedules the round
+# matchmaking_time ahead and asserts that it fits inside the timeout.
+
+experiment:
+  name: averaging-timeout-tiny
+  seed: 7
+  rounds: 5
+
+aggregator:
+  endpoint: http://aggregator:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+node_types:
+  normal:
+    count: 3
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 192
+      matchmaking_time: 0.2
+      averaging_timeout: 0.25
+      step_delay_seconds: 1.0    # paces the toy loop so a round is a real swarm round
+      eval_size: 4096

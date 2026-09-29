@@ -169,6 +169,7 @@ need to be repeated in every event.
     "round": 8,
     "eval_loss": 0.402,
     "eval_accuracy": 0.86,
+    "predicted_class_fractions": [0.24, 0.26, 0.25, 0.25],
     "samples": 4096
   }
 }
@@ -179,6 +180,23 @@ run scores exactly the same samples. A node reports one of these before its firs
 training step and one on every epoch transition. Two nodes that averaged
 successfully report the same numbers; a difference is evidence that their weights
 diverged.
+
+`predicted_class_fractions` is how the predictions were spread across the four
+classes, and it is the field that makes an attacked run readable. Accuracy alone
+cannot separate a model that has learned nothing from one that has collapsed onto
+a single class, and gradient reversal produces the collapse. Read it alongside
+accuracy:
+
+| Prediction spread | Accuracy | Meaning |
+| ----------------- | -------- | ------- |
+| near `[0.25, 0.25, 0.25, 0.25]` | rising | learning |
+| near `[0.25, 0.25, 0.25, 0.25]` | ~0.25 | has learned nothing yet |
+| one entry near `1.0` | ~0.25 | collapsed onto one class |
+
+A collapsed model scores the class prior, which is 0.25 because the four classes
+are equally likely - see ADR 0015. `eval_loss` is the metric to trust when the
+two disagree: it keeps rising as the model is driven further from the data, with
+no floor to flatten against.
 
 ### `averaging_started`
 
