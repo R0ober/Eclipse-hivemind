@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Hivemind](https://img.shields.io/badge/hivemind-1.1.12-orange.svg)](https://github.com/learning-at-home/hivemind)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-pytest-informational.svg)](tests/)
+[![Tests](https://github.com/R0ober/Eclipse-hivemind/actions/workflows/ci.yml/badge.svg)](https://github.com/R0ober/Eclipse-hivemind/actions/workflows/ci.yml)
 
 Hivemind trains neural networks across untrusted peers that find each other over a
 Kademlia DHT and average their gradients with `hivemind.Optimizer`. This project
