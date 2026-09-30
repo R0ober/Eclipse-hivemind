@@ -2,9 +2,11 @@ from fastapi.testclient import TestClient
 
 import json
 
+import pytest
+
 from eclipse_hivemind.aggregator.app import create_app
 from eclipse_hivemind.aggregator.models import ExperimentRegistration
-from eclipse_hivemind.aggregator.store import InMemoryEventStore
+from eclipse_hivemind.aggregator.store import ExperimentAlreadyExists, InMemoryEventStore
 
 
 def registration(nodes: list[dict] | None = None) -> dict:
@@ -292,3 +294,125 @@ def test_eval_metrics_event_is_accepted() -> None:
     response = client.post("/api/v1/experiments/run-test/events", json=batch)
 
     assert response.status_code == 202
+
+
+def exporting_app(export_path) -> TestClient:
+    return TestClient(
+        create_app(
+            store=InMemoryEventStore(export_path=export_path),
+            initial_registration=ExperimentRegistration.model_validate(registration()),
+        )
+    )
+
+
+def test_health_reports_ok() -> None:
+    assert registered_app().get("/health").json() == {"status": "ok"}
+
+
+def test_event_id_reused_with_different_content_is_a_conflict() -> None:
+    client = registered_app()
+    client.post("/api/v1/experiments/run-test/events", json=event_batch())
+    changed = event_batch()
+    changed["events"][0]["data"] = {"runtime": "something-else"}
+
+    response = client.post("/api/v1/experiments/run-test/events", json=changed)
+
+    assert response.status_code == 409
+    assert client.get("/api/v1/experiments/run-test/summary").json()["event_count"] == 1
+
+
+def test_experiment_id_in_the_body_must_match_the_url() -> None:
+    client = registered_app()
+    batch = event_batch()
+    batch["experiment_id"] = "run-other"
+
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+
+    assert response.status_code == 400
+
+
+def test_events_for_an_unknown_experiment_are_rejected() -> None:
+    client = registered_app()
+    batch = event_batch()
+    batch["experiment_id"] = "run-other"
+
+    response = client.post("/api/v1/experiments/run-other/events", json=batch)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "unknown experiment"
+
+
+def test_summary_for_an_unknown_experiment_is_rejected() -> None:
+    assert registered_app().get("/api/v1/experiments/run-other/summary").status_code == 404
+
+
+@pytest.mark.parametrize(("field", "value"), [("node_type", "adversarial"), ("node_index", 1)])
+def test_node_must_match_the_manifest_in_every_field(field: str, value: object) -> None:
+    """A known node_id is not enough: the type decides which side of the results
+    an event lands on, so a node cannot report under another type."""
+    client = registered_app()
+    batch = event_batch()
+    batch["node"][field] = value
+
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "unknown node"
+
+
+def test_unknown_field_on_an_event_is_rejected() -> None:
+    client = registered_app()
+    batch = event_batch()
+    batch["events"][0]["round"] = 1
+
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+
+    assert response.status_code == 422
+
+
+def test_event_data_is_exported_without_the_aggregator_knowing_its_fields(tmp_path) -> None:
+    """The data of an event belongs to the node type that sent it. A new node type
+    can report a new field without the aggregator changing."""
+    export_path = tmp_path / "events.jsonl"
+    client = exporting_app(export_path)
+    batch = event_batch()
+    batch["events"][0]["data"] = {"runtime": "test", "a_field_from_a_new_node_type": {"nested": [1, 2]}}
+
+    client.post("/api/v1/experiments/run-test/events", json=batch)
+
+    exported = json.loads(export_path.read_text())
+    assert exported["event"]["data"] == batch["events"][0]["data"]
+
+
+def test_duplicates_and_rejected_batches_are_not_exported(tmp_path) -> None:
+    export_path = tmp_path / "events.jsonl"
+    client = exporting_app(export_path)
+    unknown_node = event_batch()
+    unknown_node["node"]["node_id"] = "adversarial-0"
+    unknown_node["events"][0]["event_id"] = "event-2"
+
+    client.post("/api/v1/experiments/run-test/events", json=event_batch())
+    client.post("/api/v1/experiments/run-test/events", json=event_batch())
+    client.post("/api/v1/experiments/run-test/events", json=unknown_node)
+
+    assert len(export_path.read_text().splitlines()) == 1
+
+
+def test_acknowledgement_reports_the_highest_sequence_in_the_batch() -> None:
+    client = registered_app()
+    batch = event_batch()
+    second = dict(batch["events"][0], event_id="event-2", sequence=5)
+    third = dict(batch["events"][0], event_id="event-3", sequence=3)
+    batch["events"] += [second, third]
+
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+
+    assert response.json() == {"accepted": 3, "duplicates": 0, "rejected": 0, "last_sequence": 5}
+
+
+def test_an_experiment_cannot_be_registered_twice() -> None:
+    store = InMemoryEventStore()
+    store.register(ExperimentRegistration.model_validate(registration()))
+
+    with pytest.raises(ExperimentAlreadyExists):
+        store.register(ExperimentRegistration.model_validate(registration()))
