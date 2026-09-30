@@ -27,3 +27,26 @@ jobs:
 
       - name: Test
         run: pytest -q -rs
+
+  full:
+    name: Node tests non blocking
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # CPU only torch: the default would pull the whole gpu libary we dont need that 
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[test]"
+
+      - name: Test
+        run: pytest -q -rs
