@@ -16,7 +16,7 @@ import torch
 from hivemind.optim.grad_averager import GradientAverager
 
 from shared import averaging_watch, client
-from shared.dht import start_dht
+from shared.dht import resolved_dht_id, start_dht
 
 # Four classes, one per quadrant of the feature plane. Four balanced classes put
 # the collapse floor at 0.25, so a model driven into answering one class is
@@ -245,6 +245,7 @@ def main() -> None:
             hivemind_address=str(dht.get_visible_maddrs()[0]),
             settings=settings,
             model_fingerprint=digest.hexdigest()[:16],
+            dht_id=resolved_dht_id(dht),
         )
         print(f"AGGREGATOR_ACK={acknowledgement}", flush=True)
         try:

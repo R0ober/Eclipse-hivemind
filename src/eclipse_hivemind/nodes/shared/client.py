@@ -99,19 +99,23 @@ def send_node_started(
     hivemind_address: str,
     settings: dict | None = None,
     model_fingerprint: str | None = None,
+    dht_id: str | None = None,
     timeout: float = 5.0,
 ) -> dict:
     """Send the first lifecycle event and return the aggregator acknowledgement.
 
     `settings` and `model_fingerprint` are reported so a run can be checked
     afterwards for peers that disagree on the averaging settings or that did not
-    start from the same weights.
+    start from the same weights. `dht_id` records where the node sat in DHT ID
+    space, so a run shows whether a node landed where it was placed.
     """
     data = {"runtime": "dht", "hivemind_address": hivemind_address}
     if settings is not None:
         data["settings"] = settings
     if model_fingerprint is not None:
         data["model_fingerprint"] = model_fingerprint
+    if dht_id is not None:
+        data["dht_id"] = dht_id
     return _send_event(
         aggregator_endpoint=aggregator_endpoint,
         experiment_id=experiment_id,
