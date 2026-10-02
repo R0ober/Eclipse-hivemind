@@ -15,12 +15,11 @@ import hivemind
 import torch
 from hivemind.optim.grad_averager import GradientAverager
 
-from shared import averaging_watch, client
+from shared import averaging_members, averaging_watch, client
 from shared.dht import resolved_dht_id, start_dht
 
 # Four classes, one per quadrant of the feature plane. Four balanced classes put
-# the collapse floor at 0.25, so a model driven into answering one class is
-# visibly different from one that is learning - see ADR 0015.
+
 NUM_CLASSES = 4
 HIDDEN_UNITS = 16
 
@@ -84,7 +83,7 @@ def train_and_report(
     grad_averager_factory = (
         functools.partial(GradientAverager, **group_options) if group_options else None
     )
-    optimizer = hivemind.Optimizer(
+    optimizer = averaging_members.MemberCapturingOptimizer(
         dht=dht,
         run_id=f"{identity['experiment_id']}:toy-classifier:v1",
         target_batch_size=settings["target_batch_size"],
@@ -174,6 +173,7 @@ def train_and_report(
                     fallback_reason=observation["fallback_reason"],
                     group_size=observation["group_size"],
                     duration_seconds=observation["duration_seconds"],
+                    group_members=optimizer.pop_group_members(),
                 )
                 report_eval(step=step, round=optimizer.local_epoch)
                 epoch = optimizer.local_epoch

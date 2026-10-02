@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Turn run event logs into two tables you can plot or paste into a sheet.
+"""Turn run event logs into three tables you can plot or paste into a sheet.
 
     python scripts/summarise_runs.py                                  # every run in outputs/
     python scripts/summarise_runs.py --manifest outputs/experiment-1-manifest.csv
     python scripts/summarise_runs.py --csv results/
 
 `runs.csv` is one row per run: the final state of each cell.
-`rounds.csv` is one row per run, round and node type: the curves.
+`rounds.csv` is one row per run, round and node: the curves.
+`membership.csv` is one row per run, averaging round and node: who each node
+averaged with (`group_members` as node_ids) and `honest_share_of_group` - the
+fraction of the group that was honest, which is the core eclipse signal. Keyed by
+the averaging round, which is one less than the eval round it produced, so it is a
+separate table rather than a column on rounds.csv.
 
 Both split honest from adversarial nodes. With strict averaging groups the peers
 are no longer all in the same group, so they no longer hold identical weights, and
@@ -40,11 +45,18 @@ RUN_FIELDS = [
     "mean_group_size", "group_sizes", "top_fallback_reason",
     "total_samples", "honest_samples", "min_peer_samples", "max_peer_samples",
     "nodes_started", "distinct_fingerprints", "node_errors",
+    "min_honest_share_of_group",
 ]
 
 ROUND_FIELDS = [
     "run_id", "config", "round", "node_id", "node_type",
     "eval_loss", "eval_accuracy", "max_class_fraction",
+]
+
+MEMBER_FIELDS = [
+    "run_id", "config", "round", "node_id", "node_type",
+    "group_size", "honest_in_group", "adversary_in_group",
+    "honest_share_of_group", "group_members",
 ]
 
 
@@ -66,8 +78,9 @@ def load_events(path: Path) -> list[dict]:
     return events
 
 
-def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[dict]]:
+def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[dict], list[dict]]:
     node_type_of: dict[str, str] = {}
+    peer_to_node: dict[str, str] = {}  # libp2p PeerID -> node_id, from node_started
     settings: dict = {}
     fingerprints: set[str] = set()
     experiment_name = ""
@@ -78,6 +91,8 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
     evals: dict[int, dict[str, list[tuple]]] = defaultdict(lambda: defaultdict(list))
     samples: dict[str, int] = defaultdict(int)
     averaging: dict[str, list[dict]] = defaultdict(list)
+    # (node_id, node_type, round, group_members PeerIDs) for rounds that averaged
+    membership: list[tuple[str, str, int, list[str]]] = []
 
     for record in events:
         event, node = record["event"], record["node"]
@@ -91,6 +106,10 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
             settings = settings or data.get("settings", {})
             if data.get("model_fingerprint"):
                 fingerprints.add(data["model_fingerprint"])
+            # the maddr ends in /p2p/<PeerID>; that PeerID is what group_members reports
+            address = data.get("hivemind_address", "")
+            if "/p2p/" in address:
+                peer_to_node[address.rsplit("/p2p/", 1)[-1]] = node_id
         elif kind == "training_metrics":
             samples[node_id] += data["samples"]
         elif kind == "eval_metrics":
@@ -100,6 +119,8 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
             )
         elif kind == "averaging_completed":
             averaging[node_type].append(data)
+            if data.get("group_members"):
+                membership.append((node_id, node_type, data["round"], data["group_members"]))
         elif kind == "node_error":
             errors += 1
 
@@ -126,6 +147,33 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
                     "eval_accuracy": accuracy,
                     "max_class_fraction": fraction if fraction is not None else "",
                 })
+
+    # One row per node per averaging round. Keyed by the averaging round, which is
+    # off by one from the eval round (averaging round R produces eval round R+1), so
+    # this is its own table rather than a column on the eval-keyed rounds.csv.
+    # PeerIDs are translated to node_ids via the node_started directory; honest share
+    # is the fraction of the group that is honest, the core eclipse signal.
+    member_rows = []
+    honest_shares: list[float] = []
+    for node_id, node_type, round_number, peer_ids in membership:
+        member_nodes = [peer_to_node.get(pid, pid[:12] + "..") for pid in peer_ids]
+        honest = sum(1 for m in member_nodes if node_type_of.get(m) == "normal")
+        size = len(member_nodes)
+        share = round(honest / size, 6) if size else ""
+        if node_type == "normal" and size:
+            honest_shares.append(honest / size)
+        member_rows.append({
+            "run_id": run_id,
+            "config": meta.get("config", ""),
+            "round": round_number,
+            "node_id": node_id,
+            "node_type": node_type,
+            "group_size": size,
+            "honest_in_group": honest,
+            "adversary_in_group": size - honest,
+            "honest_share_of_group": share,
+            "group_members": "|".join(member_nodes),
+        })
 
     final_round = max(evals) if evals else ""
     final = evals.get(final_round, {}) if evals != {} else {}
@@ -173,8 +221,11 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
         "nodes_started": len(started),
         "distinct_fingerprints": len(fingerprints),
         "node_errors": errors,
+        # the most-eclipsed honest peer-round: 1.0 = always averaged with honest peers,
+        # low = a honest node kept landing in adversary-dominated groups
+        "min_honest_share_of_group": round(min(honest_shares), 6) if honest_shares else "",
     }
-    return run, rounds
+    return run, rounds, member_rows
 
 
 def main() -> None:
@@ -192,7 +243,7 @@ def main() -> None:
         meta_by_run = {row["run_id"]: {"config": Path(row["config"]).name} for row in rows}
         selected = [row["run_id"] for row in rows if row["status"] == "ok"]
 
-    run_rows, round_rows = [], []
+    run_rows, round_rows, member_rows = [], [], []
     for directory in sorted(args.outputs.glob("*/")):
         events_path = directory / "events.jsonl"
         if not events_path.exists():
@@ -203,9 +254,10 @@ def main() -> None:
         events = load_events(events_path)
         if not events:
             continue
-        run, rounds = summarise(run_id, events, meta_by_run.get(run_id, {}))
+        run, rounds, members = summarise(run_id, events, meta_by_run.get(run_id, {}))
         run_rows.append(run)
         round_rows.extend(rounds)
+        member_rows.extend(members)
 
     if not run_rows:
         print(f"no runs with events found under {args.outputs}")
@@ -228,7 +280,8 @@ def main() -> None:
 
     if args.csv:
         args.csv.mkdir(parents=True, exist_ok=True)
-        for name, fields, rows in [("runs.csv", RUN_FIELDS, run_rows), ("rounds.csv", ROUND_FIELDS, round_rows)]:
+        for name, fields, rows in [("runs.csv", RUN_FIELDS, run_rows), ("rounds.csv", ROUND_FIELDS, round_rows),
+                                   ("membership.csv", MEMBER_FIELDS, member_rows)]:
             with (args.csv / name).open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=fields)
                 writer.writeheader()

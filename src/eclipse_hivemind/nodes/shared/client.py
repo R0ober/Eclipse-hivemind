@@ -249,6 +249,7 @@ def send_averaging_completed(
     fallback_reason: str | None,
     group_size: int | None,
     duration_seconds: float | None,
+    group_members: list[str] | None = None,
     occurred_at: datetime | None = None,
     timeout: float = 5.0,
 ) -> dict:
@@ -256,7 +257,23 @@ def send_averaging_completed(
 
     `observed` is False when the epoch advanced without an averaging round of its
     own, which happens when hivemind reloads state from a peer that is ahead.
+    `group_members` is the PeerIDs this node averaged with, so analysis can tell who
+    was in the group, not just how many - the difference between an eclipse and a
+    healthy round. It is None when the round did not average.
     """
+    data = {
+        "step": step,
+        "round": round,
+        "local_epoch": round,
+        "observed": observed,
+        "success": success,
+        "fallback": fallback,
+        "fallback_reason": fallback_reason,
+        "group_size": group_size,
+        "duration_seconds": duration_seconds,
+    }
+    if group_members is not None:
+        data["group_members"] = group_members
     return _send_event(
         aggregator_endpoint=aggregator_endpoint,
         experiment_id=experiment_id,
@@ -264,17 +281,7 @@ def send_averaging_completed(
         node_type=node_type,
         node_index=node_index,
         event_type="averaging_completed",
-        data={
-            "step": step,
-            "round": round,
-            "local_epoch": round,
-            "observed": observed,
-            "success": success,
-            "fallback": fallback,
-            "fallback_reason": fallback_reason,
-            "group_size": group_size,
-            "duration_seconds": duration_seconds,
-        },
+        data=data,
         occurred_at=occurred_at,
         timeout=timeout,
     )
