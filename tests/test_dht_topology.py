@@ -84,7 +84,23 @@ def test_report_dht_snapshot_accepts_experiment_defined_tick_kind(monkeypatch):
     reports = []
     monkeypatch.setattr(topology.client, "send_dht_snapshot", lambda **kwargs: reports.append(kwargs))
     assert topology.report_dht_snapshot(
-        None, aggregator_endpoint="http://aggregator", identity={},
+        None, logger_endpoint="http://logger", identity={},
         tick=0, tick_kind="attack_stage",
     ) == snapshot
     assert reports[0]["tick_kind"] == "attack_stage"
+
+
+def test_membership_keeps_unknown_peers_without_calling_them_adversaries():
+    events = [
+        record("node_started", "normal-0", "normal", {"hivemind_address": "/p2p/honest-peer"}),
+        record("averaging_completed", "normal-0", "normal", {
+            "round": 0, "success": True, "group_size": 2,
+            "group_members": ["honest-peer", "full-unknown-peer-id"],
+        }),
+    ]
+    run, _, members = summary.summarise("run", events, {})
+    assert members[0]["adversary_in_group"] == 0
+    assert members[0]["unknown_in_group"] == 1
+    assert members[0]["honest_share_of_group"] == ""
+    assert members[0]["group_members"] == "normal-0|full-unknown-peer-id"
+    assert run["min_honest_share_of_group"] == ""

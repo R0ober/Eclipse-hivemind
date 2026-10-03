@@ -1,7 +1,9 @@
 """The start barrier is only as good as the cohorts the orchestrator publishes."""
 
-from eclipse_hivemind.aggregator.models import ExperimentRegistration
-from eclipse_hivemind.config import parse_config
+from eclipse_hivemind.logger.models import ExperimentRegistration
+import pytest
+
+from eclipse_hivemind.config import ConfigValidationError, parse_config
 from orchestrator.orchestrator import build_experiment_manifest, start_groups
 
 BASE = """
@@ -10,8 +12,8 @@ experiment:
   name: groups
   seed: 1
   rounds: 2
-aggregator:
-  endpoint: http://aggregator:8080
+logger:
+  endpoint: http://logger:8080
 bootstrap:
   seeds:
     node_type: normal
@@ -51,18 +53,20 @@ def test_each_phase_is_its_own_group() -> None:
     }
 
 
-def test_a_node_type_in_no_phase_cannot_hold_another_group_closed() -> None:
-    config = parse_config(
-        BASE
-        + """
-startup:
-  phases:
-    - name: honest-network
-      node_types: [normal]
-"""
-    )
+def test_startup_phases_must_cover_active_types() -> None:
+    with pytest.raises(ConfigValidationError, match="omit"):
+        parse_config(BASE + "startup:\n  phases:\n    - name: honest-network\n      node_types: [normal]\n")
 
-    assert start_groups(config)["adversarial"] == "unscheduled:adversarial"
+
+@pytest.mark.parametrize("phases,reason", [
+    ("- name: first\n  node_types: [normal, normal, adversarial]", "more than once"),
+    ("- name: first\n  node_types: [normal]\n- name: first\n  node_types: [adversarial]", "repeated"),
+    ("- name: first\n  node_types: [adversarial]\n- name: second\n  node_types: [normal]", "first startup phase"),
+])
+def test_ambiguous_or_late_seed_phases_are_rejected(phases, reason) -> None:
+    import textwrap
+    with pytest.raises(ConfigValidationError, match=reason):
+        parse_config(BASE + "startup:\n  phases:\n" + textwrap.indent(phases, "    ") + "\n")
 
 
 def test_manifest_labels_every_node_with_its_group() -> None:

@@ -9,8 +9,8 @@ experiment:
   name: run-test
   seed: 1
   rounds: 2
-aggregator:
-  endpoint: http://aggregator:8080
+logger:
+  endpoint: http://logger:8080
 bootstrap:
   seeds:
     node_type: normal
@@ -71,6 +71,10 @@ class FakeBackend:
             return f"HIVEMIND_MADDR={maddr(container_id)}"
         return pattern
 
+    def container_logs(self, container_id: str) -> str:
+        assert container_id not in self.removed
+        return f"logs for {container_id}"
+
     def stop(self, container_id: str) -> None:
         self.stopped.append(container_id)
 
@@ -96,20 +100,20 @@ def isolated_run(tmp_path, monkeypatch) -> list[float]:
 
 
 def run(backend: FakeBackend, experiment: ExperimentConfig, **options) -> list[dict]:
-    with orchestrator.run(experiment, backend, run_id="run-1", **options) as (_run, _network, _aggregator, nodes):
+    with orchestrator.run(experiment, backend, run_id="run-1", **options) as (_run, _network, _logger, nodes):
         return nodes
 
 
-def test_aggregator_starts_first_and_is_given_the_manifest() -> None:
+def test_logger_starts_first_and_is_given_the_manifest() -> None:
     backend = FakeBackend()
 
     run(backend, config())
 
-    assert backend.started[0] == "run-1-aggregator"
-    aggregator = backend.containers["run-1-aggregator"]
-    assert aggregator["network_aliases"] == ["aggregator"]
-    assert aggregator["env"]["EXPERIMENT_ID"] == "run-1"
-    assert aggregator["env"]["EXPERIMENT_MANIFEST"] == orchestrator.build_experiment_manifest(config(), "run-1")
+    assert backend.started[0] == "run-1-logger"
+    logger = backend.containers["run-1-logger"]
+    assert logger["network_aliases"] == ["logger"]
+    assert logger["env"]["EXPERIMENT_ID"] == "run-1"
+    assert logger["env"]["EXPERIMENT_MANIFEST"] == orchestrator.build_experiment_manifest(config(), "run-1")
 
 
 def test_seed_starts_before_the_other_nodes_and_they_get_its_address() -> None:
@@ -118,7 +122,7 @@ def test_seed_starts_before_the_other_nodes_and_they_get_its_address() -> None:
     run(backend, config())
 
     assert backend.started == [
-        "run-1-aggregator",
+        "run-1-logger",
         "run-1-normal-0",
         "run-1-normal-1",
         "run-1-normal-2",
@@ -174,7 +178,7 @@ def test_run_waits_for_every_node_to_finish_training() -> None:
 
     nodes = run(backend, config())
 
-    finished = [container for container, pattern in backend.waited if pattern == "TRAINING_COMPLETE=1"]
+    finished = [container for container, pattern in backend.waited if pattern == "NODE_COMPLETE=1"]
     assert finished == [node["container_id"] for node in nodes]
 
 
@@ -186,7 +190,7 @@ def test_fake_nodes_use_the_stand_in_image_and_are_not_waited_on() -> None:
     node = backend.containers["run-1-normal-1"]
     assert node["image"] == orchestrator.FAKE_NODE_IMAGE
     assert node["command"] == orchestrator.fake_node_command("normal-1")
-    assert not [pattern for _container, pattern in backend.waited if pattern == "TRAINING_COMPLETE=1"]
+    assert not [pattern for _container, pattern in backend.waited if pattern == "NODE_COMPLETE=1"]
 
 
 def test_phases_start_in_order_and_wait_between(isolated_run: list[float]) -> None:
@@ -198,18 +202,11 @@ def test_phases_start_in_order_and_wait_between(isolated_run: list[float]) -> No
     assert isolated_run == [30]
 
 
-def test_node_type_in_no_phase_is_not_started() -> None:
-    backend = FakeBackend()
-    only_honest = """
-startup:
-  phases:
-    - name: honest-network
-      node_types: [normal]
-"""
+def test_omitted_node_type_is_rejected_before_launch() -> None:
+    from eclipse_hivemind.config import ConfigValidationError
 
-    run(backend, config(extra=only_honest))
-
-    assert "run-1-adversarial-0" not in backend.containers
+    with pytest.raises(ConfigValidationError, match="omit"):
+        config(extra="startup:\n  phases:\n    - name: honest-network\n      node_types: [normal]\n")
 
 
 def test_everything_is_removed_when_the_run_ends() -> None:
@@ -250,3 +247,27 @@ def test_multiaddress_is_read_from_a_readiness_line() -> None:
 def test_a_line_without_the_marker_is_not_a_multiaddress() -> None:
     with pytest.raises(ValueError):
         orchestrator.extract_multiaddress("HIVEMIND_READY=1 NODE_ID=normal-0")
+
+
+def test_failed_launch_announces_id_and_preserves_logs(tmp_path, capsys) -> None:
+    backend = FakeBackend(fail_on_start="run-1-normal-2")
+    destination = tmp_path / "custom-outputs"
+    with pytest.raises(RuntimeError, match="could not start"):
+        run(backend, config(), outputs=destination)
+    assert "RUN_ID=run-1" in capsys.readouterr().out
+    for container_id in backend.containers:
+        assert (destination / "run-1" / f"{container_id}.log").read_text() == f"logs for {container_id}"
+
+
+def test_completion_uses_configured_node_timeout() -> None:
+    backend = FakeBackend()
+    waits = []
+    original = backend.wait_for_log
+    def wait(container_id, pattern, timeout):
+        waits.append((pattern, timeout))
+        return original(container_id, pattern, timeout)
+    backend.wait_for_log = wait
+    experiment = config()
+    experiment.experiment.node_timeout_seconds = 17
+    run(backend, experiment)
+    assert [timeout for pattern, timeout in waits if pattern == "NODE_COMPLETE=1"] == [17] * 4
