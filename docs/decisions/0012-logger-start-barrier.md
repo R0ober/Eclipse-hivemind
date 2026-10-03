@@ -20,19 +20,19 @@ for the whole experiment would remove that behaviour.
 ## Rationale
 
 A fixed sleep only guesses at startup time. The orchestrator could release
-nodes, but the aggregator already has the manifest and receives `node_started`
+nodes, but the logger already has the manifest and receives `node_started`
 events, so it can answer this question directly.
 
 Waiting by phase keeps the meaning of `startup.phases`: nodes in one phase begin
 together, while a later phase can still join an active swarm. The orchestrator
-sets the groups in the manifest; the aggregator only checks whether all node IDs
+sets the groups in the manifest; the logger only checks whether all node IDs
 in the asking node's group have started.
 
 ## Decision
 
 - The experiment manifest records a `start_group` for each node. It is the
   startup phase name, or `all` when no phases are configured.
-- The aggregator exposes
+- The logger exposes
   `GET /api/v1/experiments/{id}/start-barrier?node_id=<node>`.
 - A node sends `node_started`, then waits for every node in its own group before
   training.

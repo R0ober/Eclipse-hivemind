@@ -30,7 +30,7 @@ behaviour behind a layer of indirection.
 An explicit runner per type means a node type is just a normal Python script.
 Understanding the adversarial node means opening its runner and reading it.
 There is nothing to look up and nothing shared except what is actually the
-same for every type: talking to the aggregator, and starting the DHT.
+same for every type: talking to the logger, and starting the DHT.
 
 The configuration already supports this. `node_types[].image` has always been
 allowed to differ per type — ADR 0004 chose to point every type at the same
@@ -45,7 +45,7 @@ node types grow — is paid every time someone reads the code.
 ## Decision
 
 - `src/eclipse_hivemind/node/shared/` holds code identical across every node
-  type: the aggregator HTTP client and the DHT bootstrap/readiness helper.
+  type: the logger HTTP client and the DHT bootstrap/readiness helper.
 - Each node type gets its own folder with its own `runner.py`, for example
   `src/eclipse_hivemind/node/honest/runner.py`.
 - Each node type gets its own Dockerfile under `docker/`, copying `shared/`

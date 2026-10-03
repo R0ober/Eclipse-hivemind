@@ -1,4 +1,4 @@
-"""FastAPI application for the first aggregator API slice."""
+"""FastAPI application for the first logger API slice."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def create_app(
     event_store = store or InMemoryEventStore(_export_path_from_environment())
     if initial_registration is not None:
         event_store.register(initial_registration)
-    application = FastAPI(title="Eclipse Hivemind Aggregator", version="1.0")
+    application = FastAPI(title="Eclipse Hivemind Logger", version="1.0")
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -54,6 +54,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown node") from error
         except EventConflict as error:
             raise HTTPException(status_code=409, detail="event ID conflict") from error
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="could not persist event") from error
         return EventAcknowledgement(
             accepted=accepted,
             duplicates=duplicates,

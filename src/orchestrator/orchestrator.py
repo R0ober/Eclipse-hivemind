@@ -11,16 +11,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from eclipse_hivemind.config import ExperimentConfig
-from eclipse_hivemind.aggregator.models import ExperimentRegistration, ExperimentNode
+from eclipse_hivemind.logger.models import ExperimentRegistration, ExperimentNode
 from .backend import ContainerBackend
 from .env import build_node_env 
 
-AGGREGATOR_IMAGE = "eclipse-hivemind-aggregator:dev"
-AGGREGATOR_COMMAND = ["python", "-m", "eclipse_hivemind.aggregator"]
+LOGGER_IMAGE = "eclipse-hivemind-logger:dev"
+LOGGER_COMMAND = ["python", "-m", "eclipse_hivemind.logger"]
 FAKE_NODE_IMAGE = "alpine:3.20"
-# A run is bounded by rounds, not wall-clock (ADR 0006), and one round is now a
-# real aggregation round, so the ceiling has to cover matchmaking for every round.
-TRAINING_TIMEOUT_SECONDS = 3600
 
 
 def fake_node_command(node_id: str) -> list[str]:
@@ -58,7 +55,7 @@ def select_seed_node_ids(config: ExperimentConfig) -> list[str]:
 def start_groups(config: ExperimentConfig) -> dict[str, str]:
     """Map each node type to the cohort it starts with.
 
-    Nodes wait at the aggregator's start barrier for their own cohort, so a phase
+    Nodes wait at the logger's start barrier for their own cohort, so a phase
     that starts later still joins a swarm that is already training - which is the
     point of startup.phases (ADR 0009). Without phases every node starts at once
     and the whole experiment is one cohort.
@@ -70,10 +67,6 @@ def start_groups(config: ExperimentConfig) -> dict[str, str]:
     for phase in config.startup.phases:
         for node_type_name in phase.node_types:
             groups.setdefault(node_type_name, phase.name)
-    # A node type named in no phase is never started; keep it out of every cohort
-    # so it cannot hold the barrier closed for node types that do start.
-    for node_type_name in config.node_types:
-        groups.setdefault(node_type_name, f"unscheduled:{node_type_name}")
     return groups
 
 
@@ -223,27 +216,33 @@ def run(
     backend: ContainerBackend,
     run_id: str | None = None,
     fake_nodes: bool = False,
+    outputs: Path = Path("outputs"),
 ) -> Iterator[tuple[str, str, str, list[dict]]]:
     """Create the run network, yield it with the started nodes, and clean up on exit.
 
-    Yields the run id first: it names the output directory, and a caller running a
-    sweep needs it to record which config and seed produced which run.
+    Announce the run ID before launching containers, and save the resolved config
+    under outputs/run_id. Wait for each node's generic completion marker, then
+    yield the run resources. On success or failure, preserve container logs before
+    removal so the experiment can be diagnosed after cleanup.
     """
 
     validate_runtime_config(config)
     run_id = run_id or _new_run_id()
     network_name = f"eclipse-{run_id}"
     labels = {"eclipse_run": run_id}
-    network_id = backend.create_network(network_name, labels)
-    output_directory = Path.cwd() / "outputs" / run_id
+    output_directory = outputs.resolve() / run_id
     output_directory.mkdir(parents=True, exist_ok=True)
+    (output_directory / "config.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
+    # Announce before launching containers so failures still map to their outputs.
+    print(f"RUN_ID={run_id}", flush=True)
+    network_id = backend.create_network(network_name, labels)
     created_containers: list[str] = []
     nodes: list[dict] = []
 
     try:
-        aggregator_id = backend.create_container(
-            image=AGGREGATOR_IMAGE,
-            name=f"{run_id}-aggregator",
+        logger_id = backend.create_container(
+            image=LOGGER_IMAGE,
+            name=f"{run_id}-logger",
             network=network_id,
             env={
                 "EXPERIMENT_ID": run_id,
@@ -252,11 +251,11 @@ def run(
             },
             labels=labels,
             volumes={str(output_directory): {"bind": "/outputs", "mode": "rw"}},
-            command=AGGREGATOR_COMMAND,
-            network_aliases=["aggregator"],
+            command=LOGGER_COMMAND,
+            network_aliases=["logger"],
         )
-        created_containers.append(aggregator_id)
-        backend.start(aggregator_id)
+        created_containers.append(logger_id)
+        backend.start(logger_id)
 
         seed_addresses = start_seed_nodes(
             config=config,
@@ -310,15 +309,21 @@ def run(
             for node in nodes:
                 backend.wait_for_log(
                     node["container_id"],
-                    "TRAINING_COMPLETE=1",
-                    timeout=TRAINING_TIMEOUT_SECONDS,
+                    "NODE_COMPLETE=1",
+                    timeout=config.experiment.node_timeout_seconds,
                 )
 
-        yield run_id, network_id, aggregator_id, nodes
+        yield run_id, network_id, logger_id, nodes
     finally:
         for container_id in reversed(created_containers):
             with contextlib.suppress(Exception):
                 backend.stop(container_id)
+            try:
+                logs = backend.container_logs(container_id)
+                (output_directory / f"{container_id}.log").write_text(logs, encoding="utf-8")
+            except Exception as error:
+                # Keep cleaning up, but make missing diagnostics visible.
+                print(f"Could not save logs for {container_id}: {error}", flush=True)
             with contextlib.suppress(Exception):
                 backend.remove_container(container_id)
         with contextlib.suppress(Exception):

@@ -1,23 +1,11 @@
-"""Request and response models for the aggregator's first API version."""
+"""Request and response models for the logger's first API version."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class EventType(StrEnum):
-    NODE_STARTED = "node_started"
-    RESOURCE_SAMPLE = "resource_sample"
-    TRAINING_METRICS = "training_metrics"
-    EVAL_METRICS = "eval_metrics"
-    AVERAGING_STARTED = "averaging_started"
-    AVERAGING_COMPLETED = "averaging_completed"
-    NODE_FINISHED = "node_finished"
-    NODE_ERROR = "node_error"
 
 
 class NodeIdentity(BaseModel):
@@ -48,7 +36,7 @@ class Event(BaseModel):
 
     event_id: str = Field(min_length=1)
     sequence: int = Field(ge=0, strict=True)
-    event_type: EventType
+    event_type: str = Field(min_length=1)
     occurred_at: datetime
     data: dict[str, Any]
 

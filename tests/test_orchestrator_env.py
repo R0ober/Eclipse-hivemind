@@ -7,8 +7,8 @@ experiment:
   name: env-test
   seed: 1
   rounds: 5
-aggregator:
-  endpoint: http://aggregator:8080
+logger:
+  endpoint: http://logger:8080
 bootstrap:
   seeds:
     node_type: normal
@@ -63,7 +63,7 @@ def test_node_env_is_exactly_the_documented_contract() -> None:
         "NODE_TYPE": "normal",
         "NODE_INDEX": "1",
         "NODE_SEED": str(derive_node_seed(1, "normal-1")),
-        "AGGREGATOR_ENDPOINT": "http://aggregator:8080/",
+        "LOGGER_ENDPOINT": "http://logger:8080/",
         "INITIAL_PEERS": "",
     }
 

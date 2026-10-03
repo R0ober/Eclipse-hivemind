@@ -1,0 +1,20 @@
+schema_version: 1
+experiment:
+  name: dht-observer-smoke
+  seed: 42
+  rounds: 10
+logger:
+  endpoint: http://logger:8080
+bootstrap:
+  seeds:
+    node_type: observer
+    count: 1
+  policy: seed_only
+node_types:
+  observer:
+    count: 3
+    image: hivemind-observer:latest
+    parameters:
+      snapshot_interval_seconds: 1
+      k_nearest: 3
+      target_dht_id: "0000000000000000000000000000000000000000"

@@ -12,7 +12,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 # One node-local sequence per process, so every event type shares the same counter
-# and the aggregator can spot a gap. node_started therefore always gets sequence 0.
+# and the logger can spot a gap. node_started therefore always gets sequence 0.
 _sequence = itertools.count()
 
 
@@ -28,9 +28,9 @@ class StartBarrierTimeout(RuntimeError):
         self.barrier = barrier
 
 
-def _send_event(
+def send_event(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -40,7 +40,13 @@ def _send_event(
     occurred_at: datetime | None = None,
     timeout: float = 5.0,
 ) -> dict:
-    """Send one node event and return the aggregator acknowledgement."""
+    """Send an experiment-defined event and return the logger acknowledgement.
+
+    event_type names the measurement; data contains its JSON fields. The logger
+    stores these fields without imposing a model, training loop, or schema for
+    the experiment. A failed request raises so the node can decide whether to
+    retry or stop. The specialised send_* functions are optional conveniences.
+    """
     payload = {
         "schema_version": 1,
         "experiment_id": experiment_id,
@@ -59,7 +65,7 @@ def _send_event(
             }
         ],
     }
-    url = f"{aggregator_endpoint.rstrip('/')}/api/v1/experiments/{experiment_id}/events"
+    url = f"{logger_endpoint.rstrip('/')}/api/v1/experiments/{experiment_id}/events"
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -72,10 +78,10 @@ def _send_event(
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
         raise RuntimeError(
-            f"aggregator rejected {event_type} with HTTP {error.code}: {body}"
+            f"logger rejected {event_type} with HTTP {error.code}: {body}"
         ) from error
     except URLError as error:
-        raise RuntimeError(f"could not reach aggregator at {url}: {error.reason}") from error
+        raise RuntimeError(f"could not reach logger at {url}: {error.reason}") from error
 
 
 def _get_json(url: str, timeout: float) -> dict:
@@ -84,14 +90,14 @@ def _get_json(url: str, timeout: float) -> dict:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"aggregator returned HTTP {error.code} for {url}: {body}") from error
+        raise RuntimeError(f"logger returned HTTP {error.code} for {url}: {body}") from error
     except URLError as error:
-        raise RuntimeError(f"could not reach aggregator at {url}: {error.reason}") from error
+        raise RuntimeError(f"could not reach logger at {url}: {error.reason}") from error
 
 
 def send_node_started(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -99,21 +105,25 @@ def send_node_started(
     hivemind_address: str,
     settings: dict | None = None,
     model_fingerprint: str | None = None,
+    dht_id: str | None = None,
     timeout: float = 5.0,
 ) -> dict:
-    """Send the first lifecycle event and return the aggregator acknowledgement.
+    """Send the first lifecycle event and return the logger acknowledgement.
 
     `settings` and `model_fingerprint` are reported so a run can be checked
     afterwards for peers that disagree on the averaging settings or that did not
-    start from the same weights.
+    start from the same weights. `dht_id` records where the node sat in DHT ID
+    space, so a run shows whether a node landed where it was placed.
     """
     data = {"runtime": "dht", "hivemind_address": hivemind_address}
     if settings is not None:
         data["settings"] = settings
     if model_fingerprint is not None:
         data["model_fingerprint"] = model_fingerprint
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    if dht_id is not None:
+        data["dht_id"] = dht_id
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
@@ -126,7 +136,7 @@ def send_node_started(
 
 def send_training_metrics(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -144,8 +154,8 @@ def send_training_metrics(
     `batch_accuracy` is measured on the local training batch, so it is noisy by
     construction. Held-out accuracy is reported by `send_eval_metrics`.
     """
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
@@ -165,7 +175,7 @@ def send_training_metrics(
 
 def send_eval_metrics(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -185,8 +195,8 @@ def send_eval_metrics(
     that has collapsed onto a single class, and both a healthy run and an attacked
     run can sit at the same accuracy while predicting very different things.
     """
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
@@ -206,7 +216,7 @@ def send_eval_metrics(
 
 def send_averaging_started(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -217,8 +227,8 @@ def send_averaging_started(
     timeout: float = 5.0,
 ) -> dict:
     """Report that hivemind began an aggregation round for this epoch."""
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
@@ -232,7 +242,7 @@ def send_averaging_started(
 
 def send_averaging_completed(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -245,6 +255,7 @@ def send_averaging_completed(
     fallback_reason: str | None,
     group_size: int | None,
     duration_seconds: float | None,
+    group_members: list[str] | None = None,
     occurred_at: datetime | None = None,
     timeout: float = 5.0,
 ) -> dict:
@@ -252,25 +263,31 @@ def send_averaging_completed(
 
     `observed` is False when the epoch advanced without an averaging round of its
     own, which happens when hivemind reloads state from a peer that is ahead.
+    `group_members` is the PeerIDs this node averaged with, so analysis can tell who
+    was in the group, not just how many - the difference between an eclipse and a
+    healthy round. It is None when the round did not average.
     """
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    data = {
+        "step": step,
+        "round": round,
+        "local_epoch": round,
+        "observed": observed,
+        "success": success,
+        "fallback": fallback,
+        "fallback_reason": fallback_reason,
+        "group_size": group_size,
+        "duration_seconds": duration_seconds,
+    }
+    if group_members is not None:
+        data["group_members"] = group_members
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
         node_index=node_index,
         event_type="averaging_completed",
-        data={
-            "step": step,
-            "round": round,
-            "local_epoch": round,
-            "observed": observed,
-            "success": success,
-            "fallback": fallback,
-            "fallback_reason": fallback_reason,
-            "group_size": group_size,
-            "duration_seconds": duration_seconds,
-        },
+        data=data,
         occurred_at=occurred_at,
         timeout=timeout,
     )
@@ -278,7 +295,7 @@ def send_averaging_completed(
 
 def send_node_error(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     node_type: str,
@@ -290,8 +307,8 @@ def send_node_error(
     timeout: float = 5.0,
 ) -> dict:
     """Report a problem the node handled locally, so it stays visible in the export."""
-    return _send_event(
-        aggregator_endpoint=aggregator_endpoint,
+    return send_event(
+        logger_endpoint=logger_endpoint,
         experiment_id=experiment_id,
         node_id=node_id,
         node_type=node_type,
@@ -309,7 +326,7 @@ def send_node_error(
 
 def wait_for_start_barrier(
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     experiment_id: str,
     node_id: str,
     timeout: float,
@@ -324,7 +341,7 @@ def wait_for_start_barrier(
     node's cohort only, so a later startup phase joins a swarm already in progress.
     """
     url = (
-        f"{aggregator_endpoint.rstrip('/')}/api/v1/experiments/"
+        f"{logger_endpoint.rstrip('/')}/api/v1/experiments/"
         f"{experiment_id}/start-barrier?node_id={quote(node_id)}"
     )
     deadline = time.monotonic() + timeout
@@ -335,3 +352,23 @@ def wait_for_start_barrier(
         if time.monotonic() >= deadline:
             raise StartBarrierTimeout(barrier)
         time.sleep(poll_interval)
+
+
+def send_dht_snapshot(
+    *, logger_endpoint: str, experiment_id: str, node_id: str,
+    node_type: str, node_index: int, tick: int, tick_kind: str, snapshot: dict,
+    timeout: float = 5.0,
+) -> dict:
+    """Report a point-in-time DHT neighbourhood independently of averaging.
+
+    Peer pairs retain their DHTID and PeerID; analysis resolves the latter through
+    node_started events. `tick` is the reporting node's own counter and `tick_kind`
+    says what it counts, because an observer's ticks and a training node's
+    local optimizer epochs are not the same clock.
+    """
+    return send_event(
+        logger_endpoint=logger_endpoint, experiment_id=experiment_id,
+        node_id=node_id, node_type=node_type, node_index=node_index,
+        event_type="dht_snapshot", data={**snapshot, "tick": tick, "tick_kind": tick_kind},
+        timeout=timeout,
+    )

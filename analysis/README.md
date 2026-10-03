@@ -1,42 +1,39 @@
 # Analysis
 
+Install the analysis dependencies and export experiment 1 results:
+
 ```bash
 pip install -e ".[analysis]"
-
-python scripts/summarise_runs.py \
-  --manifest outputs/experiment-1-manifest.csv --csv analysis/experiment-1/
+python scripts/summarise_runs.py --manifest outputs/experiment-1-manifest.csv --csv analysis/experiment-1/
 ```
 
-`outputs/` is gitignored (raw logs). CSVs here are tracked. Same reason as
-`measurements/dht-node.json`.
+Git excludes raw logs under outputs/. Track your result CSVs under analysis/.
 
-`runs.csv`: one row per cell, final state. Headline for exp 1 is
-`honest_eval_loss` vs malicious count. Also has averaging success, group sizes,
-fallbacks, who started, fingerprints, errors, sample counts. Read those before
-loss. Failed averaging or mismatched start weights look like a successful attack.
+## Read the tables
 
-`rounds.csv`: one row per run, round and node. Not aggregated. A mean can be a
-model nobody has. Exp 2, 6 adversaries, honest losses 1.12, 4.84, 1.12, 1.12.
-Mean 2.05. Three peers averaged together, one got isolated. Aggregate in the
-notebook if you want.
+`runs.csv` contains one row per run. Compare honest_eval_loss across malicious peer counts. Check averaging success, group sizes, startup counts, model fingerprints, errors and sample counts before comparing loss.
 
-Exp 1 is one group so the extra rows are duplicates. Full swarm cell is n=1
-model. Error bars over those 10 nodes are zero.
+`rounds.csv` contains one row per run, round and node. The script keeps each node's measurement separate. In one experiment 2 run with six adversaries, four honest peers reported losses of 1.12, 4.84, 1.12 and 1.12. Their mean was 2.05. Use per-node results to identify the isolated peer.
 
-Last round of `rounds.csv` rebuilds the final numbers in `runs.csv`. Averaging and
-integrity columns are not per-round.
+`membership.csv` records each averaging group's members as node IDs. Use `honest_share_of_group` to measure the group's composition. Unresolved PeerIDs keep their full strings and count as unknown. The script leaves the share blank when a group contains unknown members.
 
-One run per cell. Seed fixes init, held-out set, data stream. Does not fix sample
-counts. Round ends when the swarm-wide counter hits `target_batch_size`. Race
-between containers. Exp 1 expected 25600 samples, got 29760 to 30336. Same config
-again is a different model. Trend across 11 cells is usable. Exact cliff at 4 vs
-5 adversaries is two draws. Repeat a cell if you care.
+`topology.csv` records routing-table and nearest-target observations. Compare `tick_kind` and `occurred_at` before joining observations with training results. Membership round R precedes the training snapshot at local epoch R+1.
 
-Use `eval_loss`. Accuracy floors at 0.25. Untrained and collapsed look the same.
-`max_class_fraction` ~0.25 spread, aroubd 1.0 collapsed. Accuracy below 0.25 is
-reversal once attackers outweigh honest peers. Honest and adversarial kept
-separate. Small groups mean peers do not share weights. Swarm mean mixes in the
-attacker.
+## Interpret your results
 
-`nbstripout --install` before committing notebooks. Finished figures should be a
-script on the CSVs.
+Experiment 1 averages the full swarm. Ten peer measurements from one run describe one shared model, rather than ten independent runs.
+
+The seed fixes model initialisation, evaluation data and local data streams. Container scheduling affects the sample count before each epoch closes. Experiment 1 expected 25,600 samples in an earlier run and recorded totals from 29,760 to 30,336. Repeat your configs to measure run variation.
+
+Use evaluation loss with predicted class fractions. Accuracy near 0.25 occurs with an untrained model or a model predicting one class. A maximum class fraction near 0.25 indicates balanced predictions. A value near 1.0 indicates concentration on one class. Keep honest and adversarial results separate.
+
+## Notebook outputs
+
+Register the output-stripping filter for your clone:
+
+```bash
+pip install -e ".[analysis]"
+nbstripout --install
+```
+
+Your working notebook keeps its figures. Git stores the notebook without rendered outputs. Generate exported figures from the tracked CSVs.

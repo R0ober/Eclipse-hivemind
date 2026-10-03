@@ -2,7 +2,7 @@
  
 ## The Problem
  
-Two runs of the same configuration file must not collide in the aggregator, but a
+Two runs of the same configuration file must not collide in the logger, but a
 config file is a reusable, static artifact.
  
 ## Options Considered

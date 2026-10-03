@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from eclipse_hivemind.aggregator.app import create_app
-from eclipse_hivemind.aggregator.models import ExperimentRegistration
-from eclipse_hivemind.aggregator.store import ExperimentAlreadyExists, InMemoryEventStore
+from eclipse_hivemind.logger.app import create_app
+from eclipse_hivemind.logger.models import ExperimentRegistration
+from eclipse_hivemind.logger.store import ExperimentAlreadyExists, InMemoryEventStore
 
 
 def registration(nodes: list[dict] | None = None) -> dict:
@@ -85,10 +85,10 @@ def test_unknown_node_is_rejected() -> None:
     assert response.json()["detail"] == "unknown node"
 
 
-def test_invalid_event_type_is_rejected() -> None:
+def test_empty_event_type_is_rejected() -> None:
     client = registered_app()
     batch = event_batch()
-    batch["events"][0]["event_type"] = "made_up_event"
+    batch["events"][0]["event_type"] = ""
 
     response = client.post("/api/v1/experiments/run-test/events", json=batch)
 
@@ -370,9 +370,9 @@ def test_unknown_field_on_an_event_is_rejected() -> None:
     assert response.status_code == 422
 
 
-def test_event_data_is_exported_without_the_aggregator_knowing_its_fields(tmp_path) -> None:
+def test_event_data_is_exported_without_the_logger_knowing_its_fields(tmp_path) -> None:
     """The data of an event belongs to the node type that sent it. A new node type
-    can report a new field without the aggregator changing."""
+    can report a new field without the logger changing."""
     export_path = tmp_path / "events.jsonl"
     client = exporting_app(export_path)
     batch = event_batch()
@@ -416,3 +416,70 @@ def test_an_experiment_cannot_be_registered_twice() -> None:
 
     with pytest.raises(ExperimentAlreadyExists):
         store.register(ExperimentRegistration.model_validate(registration()))
+
+
+def test_dht_snapshot_event_is_accepted() -> None:
+    client = registered_app()
+    batch = event_batch()
+    batch["events"][0].update(event_type="dht_snapshot", data={
+        "tick": 0, "tick_kind": "observation", "dht_id": "0" * 40, "known_peers": [],
+    })
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+    assert response.status_code == 202
+    assert response.json()["accepted"] == 1
+
+
+def test_custom_event_is_accepted_and_exported(tmp_path) -> None:
+    path = tmp_path / "events.jsonl"
+    client = TestClient(create_app(
+        store=InMemoryEventStore(path),
+        initial_registration=ExperimentRegistration.model_validate(registration()),
+    ))
+    batch = event_batch()
+    batch["events"][0].update(event_type="gradient_sample", data={"layer": "custom", "values": [1, -2]})
+    assert client.post("/api/v1/experiments/run-test/events", json=batch).status_code == 202
+    assert json.loads(path.read_text())["event"]["data"] == batch["events"][0]["data"]
+
+
+def test_failed_export_is_retryable(monkeypatch, tmp_path) -> None:
+    from eclipse_hivemind.logger.models import EventBatch
+
+    store = InMemoryEventStore(tmp_path / "events.jsonl")
+    store.register(ExperimentRegistration.model_validate(registration()))
+    batch = EventBatch.model_validate(event_batch())
+    append = store._append_export
+    def fail(*args):
+        raise OSError("disk unavailable")
+    monkeypatch.setattr(store, "_append_export", fail)
+    with pytest.raises(OSError, match="disk unavailable"):
+        store.submit("run-test", "normal-0", "normal", 0, batch.events)
+    assert store.summary("run-test") == (0, 0)
+    monkeypatch.setattr(store, "_append_export", append)
+    assert store.submit("run-test", "normal-0", "normal", 0, batch.events) == (1, 0, 0)
+    assert len((tmp_path / "events.jsonl").read_text().splitlines()) == 1
+
+
+def test_failed_export_returns_http_500(monkeypatch) -> None:
+    store = InMemoryEventStore()
+    client = TestClient(create_app(store=store, initial_registration=ExperimentRegistration.model_validate(registration())))
+    def fail(*args):
+        raise OSError("disk unavailable")
+    monkeypatch.setattr(store, "_append_export", fail)
+    response = client.post("/api/v1/experiments/run-test/events", json=event_batch())
+    assert response.status_code == 500
+    assert store.summary("run-test") == (0, 0)
+
+
+def test_concurrent_retries_export_one_event(tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from eclipse_hivemind.logger.models import EventBatch
+
+    path = tmp_path / "events.jsonl"
+    store = InMemoryEventStore(path)
+    store.register(ExperimentRegistration.model_validate(registration()))
+    events = EventBatch.model_validate(event_batch()).events
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda _: store.submit("run-test", "normal-0", "normal", 0, events), range(8)))
+    assert sum(accepted for accepted, _, _ in results) == 1
+    assert sum(duplicates for _, duplicates, _ in results) == 7
+    assert len(path.read_text().splitlines()) == 1

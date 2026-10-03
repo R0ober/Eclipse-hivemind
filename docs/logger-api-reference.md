@@ -1,7 +1,7 @@
-# Aggregator API reference
+# Logger API reference
 
 This document describes the API used by Hivemind nodes to report experiment
-events to the aggregator. It is a living document. The API version is part of
+events to the logger. It is a living document. The API version is part of
 the URL so that a future incompatible contract can be introduced without
 changing the meaning of existing results.
 
@@ -9,9 +9,9 @@ changing the meaning of existing results.
 
 ## What the API does
 
-Nodes send observations to the aggregator. The aggregator validates and stores
-the observations, then uses them to produce experiment summaries and exports.
-Nodes do not need to calculate the final experiment result.
+Nodes send observations to the logger. The logger validates and stores
+the observations in events.jsonl. Experiment-owned analysis scripts calculate
+results; the logger does not interpret measurement fields.
 
 The API is designed for small batches of events rather than one request for
 every training step.
@@ -21,18 +21,16 @@ every training step.
 ```http
 POST /api/v1/experiments/{experiment_id}/events
 Content-Type: application/json
-Idempotency-Key: <batch-id>
 ```
 
-Version 1 does not require an authentication header. The aggregator is
+Version 1 does not require an authentication header. The logger is
 reachable only through the private Docker network created for the experiment.
-The aggregator still checks the experiment manifest before accepting events.
+The logger still checks the experiment manifest before accepting events.
 Authentication can be added later if the service is exposed outside that
 network.
 
-The `experiment_id` in the URL must match the value in the request body. The
-`Idempotency-Key` identifies a retry of the same batch. Event IDs are still
-required because a batch may be partially accepted or retried.
+The experiment_id in the URL must match the request body. Event IDs identify
+retries; the logger does not process an Idempotency-Key header.
 
 ### Request body
 
@@ -74,7 +72,7 @@ required because a batch may be partially accepted or retried.
 | `node.node_index` | integer | yes | Index within the node type. Must be non-negative. |
 | `events` | array | yes | One or more events from this node. |
 
-The aggregator checks the node identity against the experiment manifest. A node
+The logger checks the node identity against the experiment manifest. A node
 cannot change its node type by changing the request body.
 
 ## JSON Lines export
@@ -133,7 +131,7 @@ is available.
 }
 ```
 
-Resource values are measurements from the node environment. The aggregator
+Resource values are measurements from the node environment. The logger
 stores the original values and can calculate averages and peaks later.
 
 ### `training_metrics`
@@ -229,7 +227,12 @@ the event was sent.
     "fallback": false,
     "fallback_reason": null,
     "group_size": 3,
-    "duration_seconds": 0.73
+    "duration_seconds": 0.73,
+    "group_members": [
+      "12D3KooWDdGbs6Qo614dp8x3DDbFFkJfARS1mxpoxJM8UXggo7j8",
+      "12D3KooWHHihu8krjejvgms5yaUS3ZTS8KTPHcA8ZBeytt1PTTpm",
+      "12D3KooWQWYHor9G1MBLvUEvHhUSr5JgPkQ77kMTvXR6oYsRW2gF"
+    ]
   }
 }
 ```
@@ -244,10 +247,16 @@ One event per epoch transition, describing what hivemind actually did:
 | `fallback_reason` | hivemind's own reason, for example `no other peers` or `TimeoutError()`. `null` unless `fallback` is true. |
 | `group_size` | Number of peers in the averaging group, reported only on success. |
 | `duration_seconds` | From the start of the round to its outcome. |
+| `group_members` | The PeerIDs this node averaged with, sorted, **including itself**. Present only when the round averaged; omitted on a fallback. `len(group_members)` equals `group_size` by construction — they come from the same hivemind group object. Resolve a PeerID to a node with the `hivemind_address` reported in each node's `node_started` event. |
 
 A run where every round reports `fallback: true` is a run where no aggregation
 happened, whatever the loss curves look like. See ADR 0013 for where these values
 come from.
+
+`group_size` answers *how many* a node averaged with; `group_members` answers
+*who*. For an eclipse the difference is the whole point: "averaged with 4 peers" and
+"averaged with 4 adversaries" are the same `group_size` and opposite outcomes. The
+members are captured from the averager's own result, not the logs — see ADR 0017.
 
 ### `node_finished`
 
@@ -330,60 +339,33 @@ when its stored contents match the original event.
 
 ## Errors
 
-Invalid requests use a consistent error shape:
+Errors use FastAPI's detail field. Invalid envelope fields return HTTP 422;
+experiment-specific measurement fields are stored without semantic validation.
 
-```json
-{
-  "error": "validation_error",
-  "message": "event data is invalid",
-  "details": [
-    {
-      "event_index": 0,
-      "field": "data.loss",
-      "reason": "must be a number"
-    }
-  ]
-}
-```
+| Status | Meaning |
+| ------ | ------- |
+| `400` | Experiment ID does not match the URL. |
+| `404` | Experiment or node identity is unknown. |
+| `409` | An event ID was reused with different contents. |
+| `422` | JSON or envelope validation failed. |
+| `500` | The logger could not persist an event. |
 
-| Status | Error | Meaning |
-| ------ | ----- | ------- |
-| `400` | `validation_error` | JSON or event data is invalid. |
-| `404` | `unknown_experiment` / `unknown_node` | The manifest does not contain the ID. |
-| `409` | `event_conflict` | An event ID or sequence conflicts with stored data. |
-| `413` | `batch_too_large` | The request exceeds the configured batch limit. |
-| `429` | `rate_limited` | The node should retry later with backoff. |
-| `500` | `storage_error` | The aggregator could not store the request. |
+## Delivery and exports
 
-## Retry behaviour
+The supplied client sends events synchronously. There is no automatic retry or
+background queue: failures raise to the node, which owns its response policy.
+The logger writes each new event to events.jsonl before remembering acceptance.
+If a write fails, the request returns HTTP 500 and that event remains retryable.
+When retrying a submitted event, reuse its event ID and payload; calling
+send_event again creates a new event. Batch requests may partially succeed.
 
-Nodes retry `429` and `5xx` responses with bounded exponential backoff. They do
-not retry `400`, `404`, or `409` without changing or inspecting the request.
+The current logger writes JSON Lines directly to the output volume. HTTP export
+routes are not implemented. Each line retains the experiment ID, node identity,
+and event envelope. Experiment-owned scripts produce derived CSV tables.
 
-The node keeps unsent events in a bounded in memory queue. When the queue is
-full, it reports a local `node_error` and applies the experiment's chosen policy
-for dropping or stopping. The first implementation should make this policy
-explicit rather than silently losing data.
-
-## Exports
-
-The aggregator derives results from stored events:
-
-```http
-GET /api/v1/experiments/{experiment_id}/events?format=jsonl
-GET /api/v1/experiments/{experiment_id}/export?format=csv
-```
-
-JSON Lines is the first required export. Each line contains the experiment,
-node, event type, timestamp, and event data:
-
-```json
-{"experiment_id":"run-20260918-abc123","node_id":"normal-12","node_type":"normal","event_type":"training_metrics","occurred_at":"2026-09-18T14:32:10.245Z","data":{"loss":0.421}}
-```
-
-The export must preserve enough information to distinguish experiments, nodes,
-node types, metrics, event types, and timestamps. Human-readable summaries can
-be added as a separate report endpoint after the raw event export works.
+The logger accepts any non-empty event_type string and JSON data object. The
+named measurement events above are conventions used by the supplied experiments,
+not an exhaustive list. node_started is reserved for startup-barrier tracking.
 
 ## Storage shape
 
@@ -405,3 +387,40 @@ payload_json
 The storage needs a unique key for `(experiment_id, event_id)` and an index for
 `(experiment_id, node_id, occurred_at)`. It should also support retrieval by
 experiment and event type.
+
+## DHT topology snapshots
+
+`dht_snapshot` reports a node's live routing view independently of averaging:
+
+```json
+{"tick":0,"tick_kind":"observation","dht_id":"0000000000000000000000000000000000000001","known_peers":[["0000000000000000000000000000000000000002","12D3KooW..."]]}
+```
+
+`known_peers` contains `[dht_id_hex, peer_id]` pairs from the routing table before
+any lookup. If a target is configured, `target_dht_id`, `k_nearest` and
+`nearest_peers` record a live nearest-node query, including the querying node if
+it belongs among the closest peers. All DHTIDs are 40-character hexadecimal strings.
+
+`tick` is the reporting node's own counter and `tick_kind` describes it.
+The supplied observer uses `observation`; training nodes use `local_epoch`.
+Experiments may supply other counter names. A local epoch snapshot is taken at
+baseline or after an epoch transition: membership round R produces the snapshot
+at epoch R+1. Loading peer state can also advance the epoch without averaging.
+Counter labels do not imply synchronised clocks across nodes. Use event
+`occurred_at` timestamps, also preserved in topology.csv, to compare observations.
+
+The `observer` node reports `ROUNDS` snapshots without creating a model or
+averaging. Configure `snapshot_interval_seconds` (default 1), optional
+`target_dht_id`, `k_nearest` (default 20) and `start_barrier_timeout` (default 180).
+Use `docker/node-observer.Dockerfile` as its node image. Align the interval with
+averaging rounds when comparing topology with membership in a mixed run.
+
+`summarise_runs.py --csv <directory>` writes `topology.csv`, one row per node,
+tick and view (`routing_table` or `nearest_target`). PeerIDs resolve through
+`node_started.hivemind_address`. Observer peers are counted separately; unknown
+peers retain their full PeerID and leave the adversarial share blank. Empty
+neighbourhoods also have a blank share. Routing-table snapshots are local views;
+nearest-target rows measure the queried record neighbourhood.
+
+The routing-table reader is verified against hivemind 1.1.12. Re-verify its
+internal bucket layout before upgrading; the observer image pins that version.
