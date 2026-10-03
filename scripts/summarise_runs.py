@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn run event logs into three tables you can plot or paste into a sheet.
+"""Turn run event logs into four tables you can plot or paste into a sheet.
 
     python scripts/summarise_runs.py                                  # every run in outputs/
     python scripts/summarise_runs.py --manifest outputs/experiment-1-manifest.csv
@@ -13,7 +13,10 @@ fraction of the group that was honest, which is the core eclipse signal. Keyed b
 the averaging round, which is one less than the eval round it produced, so it is a
 separate table rather than a column on rounds.csv.
 
-Both split honest from adversarial nodes. With strict averaging groups the peers
+`topology.csv` records routing-table and nearest-target neighbourhoods per tick,
+with resolved node identities and adversarial shares.
+
+The training tables split honest from adversarial nodes. With strict averaging groups the peers
 are no longer all in the same group, so they no longer hold identical weights, and
 a mean over every node in the swarm would average the attacker's model into the
 result it is supposed to be damaging.
@@ -58,6 +61,65 @@ MEMBER_FIELDS = [
     "group_size", "honest_in_group", "adversary_in_group",
     "honest_share_of_group", "group_members",
 ]
+
+
+TOPOLOGY_FIELDS = [
+    "run_id", "config", "tick", "tick_kind", "occurred_at", "node_id", "node_type", "view", "target_dht_id",
+    "peer_count", "honest_peers", "adversarial_peers", "observer_peers", "unknown_peers",
+    "adversarial_share_of_neighbourhood", "neighbourhood_members", "peer_ids", "dht_ids",
+]
+
+
+def summarise_topology(run_id: str, events: list[dict], meta: dict) -> list[dict]:
+    """Resolve snapshot identities after reading the whole run's startup directory.
+
+    Each snapshot yields a routing-table row and, when queried, a nearest-target
+    row. Unknown peers retain their full identity and make the share unavailable:
+    missing startup events must not turn an unresolved peer into an adversary.
+
+    `tick_kind` says what a row's tick counts, so observer ticks are not mistaken
+    for the local optimizer epochs a training node reports.
+    """
+    peer_to_node = {}
+    node_types = {}
+    for record in events:
+        node, event = record["node"], record["event"]
+        node_types[node["node_id"]] = node["node_type"]
+        if event["event_type"] == "node_started":
+            address = event["data"].get("hivemind_address", "")
+            if "/p2p/" in address:
+                peer_to_node[address.rsplit("/p2p/", 1)[-1]] = node["node_id"]
+
+    rows = []
+    for record in events:
+        node, event = record["node"], record["event"]
+        if event["event_type"] != "dht_snapshot":
+            continue
+        data = event["data"]
+        views = [("routing_table", data["dht_id"], data["known_peers"])]
+        if "nearest_peers" in data:
+            views.append(("nearest_target", data["target_dht_id"], data["nearest_peers"]))
+        for view, target, peers in views:
+            members = [peer_to_node.get(peer_id, peer_id) for _, peer_id in peers]
+            types = [node_types.get(peer_to_node.get(peer_id)) for _, peer_id in peers]
+            honest = types.count("normal") + types.count("honest")
+            observers = types.count("observer")
+            unknown = types.count(None)
+            adversarial = sum(kind not in (None, "normal", "honest", "observer") for kind in types)
+            rows.append({
+                "run_id": run_id, "config": meta.get("config", ""),
+                "tick": data["tick"], "tick_kind": data.get("tick_kind", ""),
+                "occurred_at": event.get("occurred_at", ""),
+                "node_id": node["node_id"], "node_type": node["node_type"],
+                "view": view, "target_dht_id": target, "peer_count": len(peers),
+                "honest_peers": honest, "adversarial_peers": adversarial,
+                "observer_peers": observers, "unknown_peers": unknown,
+                "adversarial_share_of_neighbourhood": round(adversarial / len(peers), 6) if peers and not unknown else "",
+                "neighbourhood_members": "|".join(members),
+                "peer_ids": "|".join(peer_id for _, peer_id in peers),
+                "dht_ids": "|".join(dht_id for dht_id, _ in peers),
+            })
+    return rows
 
 
 def mean(values: list[float]) -> float | str:
@@ -197,7 +259,7 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
         "experiment_name": experiment_name,
         "peers": len(node_type_of),
         "honest": counts.get("normal", 0),
-        "adversarial": sum(count for name, count in counts.items() if name != "normal"),
+        "adversarial": sum(count for name, count in counts.items() if name not in ("normal", "honest", "observer")),
         "target_batch_size": settings.get("target_batch_size", ""),
         "target_group_size": settings.get("target_group_size", ""),
         "min_group_size": settings.get("min_group_size", ""),
@@ -232,7 +294,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--outputs", type=Path, default=Path("outputs"))
     parser.add_argument("--manifest", type=Path, default=None, help="Manifest from run_experiment.py, to label runs with their config and seed")
-    parser.add_argument("--csv", type=Path, default=None, help="Directory to write runs.csv and rounds.csv into")
+    parser.add_argument("--csv", type=Path, default=None, help="Directory to write run, round, membership and topology tables into")
     args = parser.parse_args()
 
     meta_by_run: dict[str, dict] = {}
@@ -243,7 +305,7 @@ def main() -> None:
         meta_by_run = {row["run_id"]: {"config": Path(row["config"]).name} for row in rows}
         selected = [row["run_id"] for row in rows if row["status"] == "ok"]
 
-    run_rows, round_rows, member_rows = [], [], []
+    run_rows, round_rows, member_rows, topology_rows = [], [], [], []
     for directory in sorted(args.outputs.glob("*/")):
         events_path = directory / "events.jsonl"
         if not events_path.exists():
@@ -258,6 +320,7 @@ def main() -> None:
         run_rows.append(run)
         round_rows.extend(rounds)
         member_rows.extend(members)
+        topology_rows.extend(summarise_topology(run_id, events, meta_by_run.get(run_id, {})))
 
     if not run_rows:
         print(f"no runs with events found under {args.outputs}")
@@ -281,7 +344,8 @@ def main() -> None:
     if args.csv:
         args.csv.mkdir(parents=True, exist_ok=True)
         for name, fields, rows in [("runs.csv", RUN_FIELDS, run_rows), ("rounds.csv", ROUND_FIELDS, round_rows),
-                                   ("membership.csv", MEMBER_FIELDS, member_rows)]:
+                                   ("membership.csv", MEMBER_FIELDS, member_rows),
+                                   ("topology.csv", TOPOLOGY_FIELDS, topology_rows)]:
             with (args.csv / name).open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=fields)
                 writer.writeheader()

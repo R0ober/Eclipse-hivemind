@@ -416,3 +416,14 @@ def test_an_experiment_cannot_be_registered_twice() -> None:
 
     with pytest.raises(ExperimentAlreadyExists):
         store.register(ExperimentRegistration.model_validate(registration()))
+
+
+def test_dht_snapshot_event_is_accepted() -> None:
+    client = registered_app()
+    batch = event_batch()
+    batch["events"][0].update(event_type="dht_snapshot", data={
+        "tick": 0, "tick_kind": "observation", "dht_id": "0" * 40, "known_peers": [],
+    })
+    response = client.post("/api/v1/experiments/run-test/events", json=batch)
+    assert response.status_code == 202
+    assert response.json()["accepted"] == 1
