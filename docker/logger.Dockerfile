@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir \
 
 COPY src/eclipse_hivemind /app/eclipse_hivemind
 
-CMD ["python", "-m", "eclipse_hivemind.aggregator"]
+CMD ["python", "-m", "eclipse_hivemind.logger"]

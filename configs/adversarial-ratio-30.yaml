@@ -1,12 +1,12 @@
 schema_version: 1
 
 experiment:
-  name: adversarial-ratio-30      
-  seed: 7                       
-  rounds: 10                      
+  name: adversarial-ratio-30
+  seed: 7
+  rounds: 10
 
-aggregator:
-  endpoint: http://aggregator:8080   
+logger:
+  endpoint: http://logger:8080
 
 startup:
   phases:
@@ -18,10 +18,10 @@ startup:
 
 bootstrap:
   seeds:
-    node_type: normal             
+    node_type: normal
     count: 1
-  policy: seed_only               
-                                  
+  policy: seed_only
+
 
 node_types:
   normal:

@@ -8,8 +8,8 @@ experiment:
   seed: 7
   rounds: 10
 
-aggregator:
-  endpoint: http://aggregator:8080
+logger:
+  endpoint: http://logger:8080
 
 bootstrap:
   seeds:
