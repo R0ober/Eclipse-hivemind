@@ -58,7 +58,7 @@ ROUND_FIELDS = [
 
 MEMBER_FIELDS = [
     "run_id", "config", "round", "node_id", "node_type",
-    "group_size", "honest_in_group", "adversary_in_group",
+    "group_size", "honest_in_group", "adversary_in_group", "unknown_in_group",
     "honest_share_of_group", "group_members",
 ]
 
@@ -218,11 +218,13 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
     member_rows = []
     honest_shares: list[float] = []
     for node_id, node_type, round_number, peer_ids in membership:
-        member_nodes = [peer_to_node.get(pid, pid[:12] + "..") for pid in peer_ids]
+        member_nodes = [peer_to_node.get(pid, pid) for pid in peer_ids]
         honest = sum(1 for m in member_nodes if node_type_of.get(m) == "normal")
+        adversarial = sum(1 for m in member_nodes if node_type_of.get(m) == "adversarial")
+        unknown = len(member_nodes) - honest - adversarial
         size = len(member_nodes)
-        share = round(honest / size, 6) if size else ""
-        if node_type == "normal" and size:
+        share = round(honest / size, 6) if size and not unknown else ""
+        if node_type == "normal" and size and not unknown:
             honest_shares.append(honest / size)
         member_rows.append({
             "run_id": run_id,
@@ -232,7 +234,8 @@ def summarise(run_id: str, events: list[dict], meta: dict) -> tuple[dict, list[d
             "node_type": node_type,
             "group_size": size,
             "honest_in_group": honest,
-            "adversary_in_group": size - honest,
+            "adversary_in_group": adversarial,
+            "unknown_in_group": unknown,
             "honest_share_of_group": share,
             "group_members": "|".join(member_nodes),
         })
