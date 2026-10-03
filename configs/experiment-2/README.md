@@ -1,20 +1,18 @@
-# Experiment 2 — averaging group size
+# Experiment 2: averaging group size
 
-Same reversal attack as experiment 1, but groups of 5 instead of the whole swarm.
-Cells: 0, 2, 4, 6 malicious out of 10.
+Run the gradient-reversal attack with ten peers and groups of five. The four configs use zero, two, four or six malicious peers.
 
-`target_group_size` and `min_group_size` are both 5, so a round either averages
-exactly five peers or falls back to local gradients (ADR 0016). Hivemind's
-default would mix group sizes by timing, which would muddy the one thing this
-experiment is varying. Fallbacks show up as `fallback: true` i.e check averaging
-success before comparing losses.
+Each config sets `target_group_size` and `min_group_size` to 5. A round averages with five peers or falls back to local gradients. Check averaging success before comparing losses. See ADR 0016 in docs/decisions/.
 
+An earlier check used six peers and groups of three. All 36 observed rounds averaged with three peers, with no fallbacks.
 
-Group *composition* still varies. 4 malicious out of 10 can land 0–4 of them in a
-group of 5. That's the first eclipse-ish thing here: who you average with, not
-the global count. One run per cell, so a small gap between neighbours could just
-be who met whom.
+The settings fix group size, while matchmaking determines group membership. With four malicious peers among ten, a group of five contains between zero and four malicious peers. Use repeated runs to measure variation in composition and outcomes.
 
-The logs record group size, not membership. An honest peer averaging with four
-honest peers vs four adversaries looks identical in the data. Peer IDs on
-`averaging_completed` would be needed for a real eclipse result.
+The `averaging_completed` event includes `group_members`. The `membership.csv` export resolves those PeerIDs through `node_started` events. Compare `honest_share_of_group` with each victim's evaluation loss. A group with unresolved PeerIDs has a blank share.
+
+Run and summarise your sweep:
+
+```bash
+python scripts/run_experiment.py configs/experiment-2
+python scripts/summarise_runs.py --manifest outputs/experiment-2-manifest.csv --csv analysis/experiment-2/
+```

@@ -1,35 +1,22 @@
 # Experiment configuration reference
 
-This document describes the YAML file for a single experiment. It defines the configuration used by the configuration parser and orchestrator. The node type labels exported by the orchestrator are also used in the experiment results.
-
-This document is **living documentation**. It changes when `schema_version` changes. The reasoning behind non-obvious configuration choices is documented separately in dated decision records under `decisions/`. This keeps the reference current without changing the history of those decisions.
-
-* Current `schema_version`: **1**
-
----
+Use your YAML config to select node images, counts, startup order and the logger endpoint. The parser supports `schema_version: 1`. Each runner owns its task and interprets its own parameters.
 
 ## Top-level structure
+
+Place experiment-wide settings under `experiment`. Place node-specific settings under `node_types.<type>.parameters`. The orchestrator forwards node parameters as environment variables.
 
 ```yaml
 schema_version: 1
 
 experiment:
-  name: adversarial-ratio-30
+  name: my-experiment
   seed: 42
-  rounds: 50
+  rounds: 20
+  node_timeout_seconds: 3600
 
-aggregator:
-  endpoint: http://aggregator:8080
-
-startup:
-  phases:
-    - name: honest-network
-      node_types:
-        - normal
-      wait_after_seconds: 120
-    - name: adversarial-nodes
-      node_types:
-        - adversarial
+logger:
+  endpoint: http://logger:8080
 
 bootstrap:
   seeds:
@@ -39,66 +26,94 @@ bootstrap:
 
 node_types:
   normal:
-    count: 7
-    image: hivemind-node:latest
-  adversarial:
     count: 3
-    image: hivemind-node:latest
+    image: eclipse-hivemind-node-honest:dev
     parameters:
-      strategy: eclipse
-      target_prefix: "expert."
+      batch_size: 32
+      target_batch_size: 192
 ```
 
----
+## Configuration fields
 
-## Fields
+### `schema_version`
 
-### `schema_version` (int, required)
+| Type | Required | Supported value |
+| --- | --- | --- |
+| Integer | Yes | `1` |
 
-Version of the configuration schema.
+### `experiment`
 
-The value must match a schema version supported by the parser. The current version is `1`.
+These settings apply to the run. The orchestrator supplies the seed and task limit to each node.
 
-This field allows future schema changes to be detected instead of being silently interpreted using the wrong format.
+| Field | Type | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `name` | String | Yes | None | Non-empty experiment label. The orchestrator generates a separate run ID. |
+| `seed` | Integer | Yes | None | Source for `EXPERIMENT_SEED` and each derived `NODE_SEED`. Your runner chooses how to use the seeds. |
+| `rounds` | Integer | Yes | None | Positive task limit supplied as `ROUNDS`. Training runners use an epoch limit. The observer uses a snapshot count. |
+| `node_timeout_seconds` | Number | No | `3600` | Maximum wait for each `NODE_COMPLETE=1` marker. Must be finite and positive. |
 
-### `experiment` (map, required)
+### `logger`
 
-| Field    | Type   | Required | Default | Notes                                                                                                         |
-| -------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| `name`   | string | yes      | —       | Human-readable label used to group related runs. **Not** the run identifier — see ADR 0001.                   |
-| `seed`   | int    | yes      | —       | Single reproducibility setting. Each node derives its own seed as `hash(seed, node_id)` — see ADR 0005.       |
-| `rounds` | int    | yes      | —       | Number of rounds before the experiment ends. One averager step equals one round. Must be `> 0`. See ADR 0006. |
+| Field | Type | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `endpoint` | Address string | Yes | None | Logger address from inside the Docker network. Use `http://logger:8080` with the supplied service. |
 
-### `aggregator` (map, required)
+The parser accepts URLs and IP addresses. The supplied HTTP client expects a URL, including the scheme and port.
 
-| Field      | Type   | Required | Default | Notes                                                                                                                               |
-| ---------- | ------ | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `endpoint` | string | yes      | —       | URL where nodes submit telemetry. The URL is resolved through Docker DNS from each container, for example `http://aggregator:8080`. |
+### `node_types`
 
-### `startup` (map, optional)
+Use your type names as keys. The orchestrator assigns node IDs such as `normal-0` and `adversarial-0` from those names. At least one type needs a positive count.
 
-Controls the order in which node types are started. The startup plan is kept
-separate from `node_types` so node behavior and experiment timing can change
-independently.
+| Field under `node_types.<type>` | Type | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `count` | Integer | Yes | None | Number of containers. Must be zero or greater. |
+| `image` | String | Yes | None | Non-empty Docker image reference. Build the image before launching your experiment. |
+| `parameters` | Map | No | `{}` | Settings interpreted by this node's runner. The orchestrator converts values to strings. |
 
-#### `startup.phases` (list, optional)
+For example, this parameter belongs to `normal` nodes:
 
-Each phase starts the listed node types, then waits for the configured delay
-before the next phase. If `startup` is omitted, the phase list is empty.
+```yaml
+node_types:
+  normal:
+    count: 3
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+```
 
-A phase is also the cohort its nodes synchronise with: the nodes of one phase
-wait for each other at the aggregator's start barrier before their first step,
-and do not wait for later phases. That is what lets a later phase join a swarm
-that is already training. See ADR 0012.
+The runner reads the parameter through `os.environ["PARAM_BATCH_SIZE"]`. Use the same pattern for your own settings. The logger and config parser do not interpret experiment-specific parameter names.
 
-| Field | Type | Required | Default | Notes |
-| ----- | ---- | -------- | ------- | ----- |
-| `name` | string | yes | — | Human-readable phase name. |
-| `node_types` | list of strings | yes | — | Names from the top-level `node_types` map. |
-| `wait_after_seconds` | int | no | `0` | Delay after the phase before the next phase. Must be `>= 0`. |
+### `bootstrap`
 
-For example, this starts the honest nodes first, waits two minutes, and then
-starts the adversarial nodes:
+Bootstrap settings select the nodes supplying initial peer addresses.
+
+| Field | Type | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `seeds.node_type` | String | With multiple types | The only configured type | Selects the type providing seed nodes. |
+| `seeds.count` | Integer | No | `1` | Must be at least one and must not exceed the selected type's count. |
+| `policy` | String | No | `seed_only` | Starts seeds first and passes their addresses to other nodes. The parser recognises `full`, but the orchestrator rejects this unimplemented policy. |
+
+```yaml
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+```
+
+The orchestrator reads each seed's `HIVEMIND_MADDR` output. Other nodes receive the seed addresses through `INITIAL_PEERS`.
+
+With one configured type, omit `bootstrap` to use one seed from this type. With multiple types, supply `bootstrap.seeds.node_type` explicitly.
+
+### `startup.phases`
+
+Use phases when your experiment needs different arrival times. Without phases, the orchestrator launches all remaining nodes after the seeds and assigns one startup group.
+
+| Field in each phase | Type | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `name` | String | Yes | None | Non-empty, unique phase name. Also identifies the startup group. |
+| `node_types` | List of strings | Yes | None | Non-empty list of configured type names. Each active type must appear once. |
+| `wait_after_seconds` | Integer | No | `0` | Delay after launching the phase. Must be zero or greater. |
 
 ```yaml
 startup:
@@ -110,138 +125,125 @@ startup:
       node_types: [adversarial]
 ```
 
-### `bootstrap` (map, optional)
+This example launches honest nodes, waits 120 seconds, then launches adversarial nodes. The seed type must belong to the first phase because seeds always launch first. The orchestrator also applies a configured delay after the final phase.
 
-Controls how much of the peer set each node knows when it starts.
+Nodes using the logger's startup barrier wait for their own phase. They do not wait for later phases. Your runner chooses whether to use the barrier and how to handle a timeout.
 
-This is an experiment variable, not implementation plumbing — see ADR 0002.
+## Parameters read by the supplied runners
 
-| Field             | Type   | Required | Default             | Notes                                                                                                                                              |
-| ----------------- | ------ | -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `seeds.node_type` | string | no       | the only node type* | Node type from which the seed peers are selected. Must reference an existing node type.                                                            |
-| `seeds.count`     | int    | no       | `1`                 | Number of seed peers. Must be `>= 1` and `<=` the count of `seeds.node_type`.                                                                      |
-| `policy`          | enum   | no       | `seed_only`         | `seed_only`: non-seed nodes start knowing only the seed(s), and discovery finds the remaining peers. `full`: every node starts knowing every peer. The current orchestrator supports `seed_only`; `full` is reserved for a future implementation. |
+All parameters in this section belong under `node_types.<type>.parameters`. They are optional runner settings, rather than new top-level fields.
 
-* If `bootstrap` is omitted, the defaults are used: one seed from the only node type. If there are multiple node types, the first honest type is used. The default policy is `seed_only`.
+### Honest and reverse-gradient training nodes
 
-For eclipse runs, `seed_only` is required for the attack to be observable — see ADR 0002. The current orchestrator rejects `full` until it can precompute all peer addresses before startup.
+Both supplied training runners read these settings:
 
-### `node_types` (map, required, at least one entry)
-
-A map keyed by **type name**.
-
-Each key must be unique. The type name is also the exact identifier used later for labelling, storage, and exporting results.
-
-| Field        | Type   | Required | Default | Notes                                                                                                                                                                      |
-| ------------ | ------ | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `count`      | int    | yes      | —       | Number of containers of this type. Must be `>= 0`. At least one node type must have a count `> 0`.                                                                         |
-| `image`      | string | yes      | —       | Docker image reference, such as `repo/name:tag` or a digest. Using the same image for multiple types is normal. Behaviour is selected through `parameters` — see ADR 0004. |
-| `parameters` | map    | no       | `{}`    | Free-form key/value parameters that control node behaviour. Each parameter is passed to the container as a `PARAM_<UPPERCASE_KEY>` environment variable.                   |
-
-#### Common parameters for a training node type
-
-These are read by the node runners, not by the parser, so they follow the
-`PARAM_*` contract like any other parameter.
-
-| Parameter | Default | Meaning |
-| --------- | ------- | ------- |
-| `batch_size` | `32` | Samples per local step. |
+| Parameter | Default | Purpose and constraints |
+| --- | --- | --- |
+| `batch_size` | `32` | Positive number of samples per local step. |
 | `learning_rate` | `0.05` | SGD learning rate. |
-| `target_batch_size` | `total_nodes x batch_size x 2` | Samples the swarm must accumulate before an epoch ends. One epoch is one aggregation round, so this has to be larger than one peer's batch; otherwise every peer finishes an epoch alone on every step and `round` equals `step`. **Every node type in a run must use the same value**, or the peers disagree about when an epoch ends. |
-| `matchmaking_time` | `15` | Seconds hivemind spends assembling an averaging group. Needs room for every peer to join. |
-| `averaging_timeout` | `60` | Seconds for the all-reduce. Must be greater than `matchmaking_time`; the node refuses to start otherwise, because hivemind schedules the round `matchmaking_time` ahead and then asserts that it fits inside the timeout. |
-| `step_delay_seconds` | `1.0` | Sleep after each local step. A step on the toy model takes about a millisecond, so without this a peer reaches `target_batch_size` on its own before hivemind's progress tracker has fetched anyone else's progress, and no real aggregation ever happens. It stands in for the compute time of a realistic step. |
-| `target_group_size` | `0` (hivemind's own matchmaking) | Peers an averaging group tries to reach. Hivemind treats it as a maximum, not a size. Must be at least 2. |
-| `min_group_size` | `0` (hivemind's default of 2) | Peers an averaging group needs before it will run. Set it equal to `target_group_size` for an exact group size: a round then averages exactly that many peers or disbands and falls back to local gradients. Leaving it lower means hivemind averages with whoever arrived before `matchmaking_time` ran out, so the realised size varies round to round - see ADR 0016. Every node type in a run should use the same values. |
-| `eval_size` | `4096` | Size of the held-out evaluation set, generated from `experiment.seed` so every node scores the same samples. |
-| `start_barrier_timeout` | `180` | Seconds a node waits at the start barrier for the other nodes **in its own startup phase** to report `node_started`. It does not wait for later phases, so it is unaffected by `wait_after_seconds`. On a timeout the node trains anyway and reports a `node_error`. |
+| `target_batch_size` | `total_nodes * batch_size * 2` | Swarm-wide sample target. Use the same value across averaging participants. Choose a target larger than one local batch for joint rounds. |
+| `matchmaking_time` | `15` | Positive time in seconds for assembling a group. |
+| `averaging_timeout` | `60` | Averaging timeout in seconds. Must exceed `matchmaking_time`. |
+| `step_delay_seconds` | `1` | Delay after each local step. Must be zero or greater. The delay gives peers time to exchange progress on the supplied classifier task. |
+| `target_group_size` | `0` | Zero leaves the choice to hivemind. A configured non-zero value must be at least two. |
+| `min_group_size` | `0` | Zero leaves the choice to hivemind. A configured non-zero value must be at least two and must not exceed a configured `target_group_size`. |
+| `eval_size` | `4096` | Positive number of held-out samples generated from `experiment.seed`. |
+| `start_barrier_timeout` | `180` | Time in seconds for startup coordination. The supplied training runners report `node_error` and continue training after a barrier timeout. |
 
-#### Common parameters for an adversarial type
+For exact-size groups, set `target_group_size` and `min_group_size` equally. A round with too few members falls back to local gradients. See [ADR 0016](decisions/0016-strict-averaging-group-size.md).
 
-| Parameter       | Meaning                                                                                             |
-| --------------- | --------------------------------------------------------------------------------------------------- |
-| `strategy`      | Attack strategy used by the node, for example `eclipse`.                                            |
-| `target_prefix` | Target of the attack. The node uses this value to derive its DHTID placement — see ADR 0003 / 0005. |
+The reverse-gradient runner implements the attack directly. This runner does not read `strategy` or `target_prefix`.
 
----
+### DHT settings shared by the supplied node types
 
-## Validation rules
+| Parameter | Default | Purpose |
+| --- | --- | --- |
+| `dht_id_source` | Unset | Derives a deterministic DHTID from your source string. Without a source, hivemind selects a random ID. Use distinct sources for distinct DHTIDs. |
 
-The parser enforces the following rules:
-
-* `schema_version` must be a supported version.
-* All required fields must be present and have the correct type.
-* `rounds` must be `> 0`.
-* Every `count` must be `>= 0`.
-* At least one node type must have `count > 0`.
-* `bootstrap.seeds.node_type` must exist in `node_types`.
-* `bootstrap.seeds.node_type` must have a `count` greater than or equal to `bootstrap.seeds.count`.
-* Every `startup.phases[].node_types[]` entry must exist in `node_types`.
-* Every `startup.phases[].wait_after_seconds` value must be `>= 0`.
-* `aggregator.endpoint` must be a valid URL.
-* **Unknown fields are rejected**, not ignored. The configuration uses strict decoding, so a typo such as `conut: 7` fails instead of being silently ignored.
-* Validation errors are collected and reported together. Each error includes the path to the invalid field instead of stopping at the first error.
-
----
-
-## What the config does *not* contain
-
-The following values are generated or derived by the orchestrator when the experiment starts. They are intentionally not part of the YAML file.
-
-| Concern                                              | Where it comes from                                                                                                                              |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run_id`                                             | Generated for each launch. It is also used as the results directory name and the DHT/averager prefix. See ADR 0001.                              |
-| `node_id`                                            | Generated as `"{type}-{index}"`, where `index` starts at 0 within each type.                                                                     |
-| Per-node seed                                        | Derived as `hash(experiment.seed, node_id)`. See ADR 0005.                                                                                       |
-| Per-node DHTID                                       | Honest nodes use a random DHTID. Adversarial nodes derive it from `strategy` + `target_prefix`. See ADR 0003.                                    |
-| Per-node PeerID / identity                           | The orchestrator generates one `identity_path` for each container so all maddrs are known before startup.                                        |
-| Per-container `initial_peers`                        | Built from the `bootstrap` policy and the known PeerIDs.                                                                                         |
-| DHT/averager prefix                                  | Set to `run_id`. Each run is also isolated using a separate Docker network.                                                                      |
-| Listen address / port, network name, container names | Set by orchestrator constants. `host_maddrs` listens on `0.0.0.0:<port>`. The bridge-routable maddr is captured instead of the loopback address. |
-
----
-
-## Deliberately deferred
-
-Add these settings only when there is a need to vary them.
-
-When added, they should be placed under `experiment.parameters` if they apply to the whole experiment rather than to individual nodes.
-
-* Averager tuning: `target_group_size`, `min_group_size`, `averaging_alpha`.
-* Per-type `resources`, such as CPU and memory limits.
-* Per-type `subnet` / `network`. These are only relevant if an IP-diversity defense is added. Hivemind's Kademlia DHT does not currently use one — see ADR 0003.
-* Parameter sweeps. A separate sweep file that generates multiple resolved configs is cleaner than using list-valued fields in this file.
-
----
-
-## Environment passed to each container
-
-For reference, this is the contract between the orchestrator and each container:
-
-```text
-EXPERIMENT_ID        run-2026-09-15-a3f9   # = run_id
-EXPERIMENT_NAME      adversarial-ratio-30
-EXPERIMENT_SEED      42
-ROUNDS               50
-EXPERIMENT_TOTAL_NODES 10                  # every node counts the swarm it is sizing rounds for
-NODE_ID              adversarial-0
-NODE_TYPE            adversarial
-NODE_INDEX           0
-NODE_SEED            <derived>
-IDENTITY_PATH        /identities/adversarial-0.id
-AGGREGATOR_ENDPOINT  http://aggregator:8080
-INITIAL_PEERS        <space-separated maddrs>
-PARAM_STRATEGY       eclipse               # one PARAM_* per parameters key
-PARAM_TARGET_PREFIX  expert.
+```yaml
+node_types:
+  normal:
+    count: 1
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      dht_id_source: target-peer
 ```
 
----
+A type's parameters apply to all nodes of the type. Use one node per type or implement per-node derivation in your runner when assigning distinct deterministic IDs.
 
-## Examples
+### Observer nodes
 
-### Minimal — plain averaging baseline
+| Parameter | Default | Purpose and constraints |
+| --- | --- | --- |
+| `snapshot_interval_seconds` | `1` | Positive delay in seconds between snapshot reports. |
+| `target_dht_id` | Unset | Optional nearest-peer lookup target. Supply a 40-character hexadecimal DHTID. |
+| `k_nearest` | `20` | Positive number of requested nearest peers. |
+| `start_barrier_timeout` | `180` | Time in seconds for startup coordination. The observer exits on a barrier timeout. |
 
-This example relies on the defaults. With `bootstrap` omitted, the configuration uses one seed and the `seed_only` policy.
+Without `target_dht_id`, the observer records its routing table without a nearest-target lookup. Use [configs/dht-observer.yaml](../configs/dht-observer.yaml) for a complete example.
+
+## Complete training example
+
+This example places each setting under its owning section. Both node types use the same averaging settings. The images select honest training or gradient reversal.
+
+```yaml
+schema_version: 1
+
+experiment:
+  name: gradient-reversal-example
+  seed: 7
+  rounds: 20
+  node_timeout_seconds: 3600
+
+logger:
+  endpoint: http://logger:8080
+
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+
+startup:
+  phases:
+    - name: all-peers
+      node_types: [normal, adversarial]
+
+node_types:
+  normal:
+    count: 7
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 5
+      min_group_size: 5
+      eval_size: 4096
+      start_barrier_timeout: 180
+
+  adversarial:
+    count: 3
+    image: eclipse-adversary-reverse-gradient:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 5
+      min_group_size: 5
+      eval_size: 4096
+      start_barrier_timeout: 180
+```
+
+## Minimal baseline example
+
+With one type, bootstrap defaults select one seed and the `seed_only` policy. The runner uses its default training parameters.
 
 ```yaml
 schema_version: 1
@@ -251,51 +253,44 @@ experiment:
   seed: 1
   rounds: 50
 
-aggregator:
-  endpoint: http://aggregator:8080
+logger:
+  endpoint: http://logger:8080
 
 node_types:
   normal:
     count: 3
-    image: hivemind-node:latest
+    image: eclipse-hivemind-node-honest:dev
 ```
 
-### Full — every field exercised
+## Environment passed to each node
 
-```yaml
-schema_version: 1
+The orchestrator generates these values. Your YAML supplies the source settings, rather than individual node identities.
 
-experiment:
-  name: adversarial-ratio-30      # human label; groups related runs. NOT the run id.
-  seed: 42                        # single knob; each node derives hash(seed, node_id)
-  rounds: 50                      # termination: one averager step = one round
+| Environment variable | Source or example |
+| --- | --- |
+| `EXPERIMENT_ID` | Generated run ID. |
+| `EXPERIMENT_NAME` | `experiment.name`. |
+| `EXPERIMENT_SEED` | `experiment.seed`. |
+| `ROUNDS` | `experiment.rounds`. |
+| `EXPERIMENT_TOTAL_NODES` | Sum of configured counts. |
+| `NODE_ID` | Type and zero-based index, such as `normal-0`. |
+| `NODE_TYPE` | Type name from `node_types`. |
+| `NODE_INDEX` | Zero-based index within the type. |
+| `NODE_SEED` | SHA-256 derivation from `experiment.seed` and `node_id`. |
+| `LOGGER_ENDPOINT` | `logger.endpoint`. |
+| `INITIAL_PEERS` | Space-separated seed multiaddresses. |
+| `PARAM_<UPPERCASE_KEY>` | String value from `node_types.<type>.parameters.<key>`. |
 
-aggregator:
-  endpoint: http://aggregator:8080   # resolved via Docker DNS from every node
+`build_node_env` accepts an optional `identity_path` argument. The current orchestrator does not supply this argument or generate PeerID files. The shared DHT helper lets hivemind create the network identity.
 
-startup:
-  phases:
-    - name: honest-network
-      node_types: [normal]
-      wait_after_seconds: 120         # delay before adversarial nodes start
-    - name: adversarial-nodes
-      node_types: [adversarial]
+## Validation and outputs
 
-bootstrap:
-  seeds:
-    node_type: normal             # entry point(s) drawn from an honest type
-    count: 1
-  policy: seed_only               # discovery fills the rest; required to observe eclipse
-                                  # alt: full → every node starts with every peer
+The parser checks required fields, value types, positive rounds, finite positive node timeouts, node counts, seed selection and phase coverage. The selected seed type must contain enough nodes. Phase references must name configured types.
 
-node_types:
-  normal:
-    count: 7
-    image: hivemind-node:latest
-  adversarial:
-    count: 3
-    image: hivemind-node:latest   # same image; behaviour selected by parameters
-    parameters:
-      strategy: eclipse
-      target_prefix: "expert."    # attack target; node derives its DHTID source from this
-```
+The top-level config rejects unknown fields. Nested models do not enforce the same rejection rule. Parameter names remain experiment-defined. Keep spelling aligned with your runner.
+
+The orchestrator announces `RUN_ID` before launching containers. Each run has its own Docker network. The supplied training runners build their averaging prefix from the run ID and classifier version.
+
+The default output parent is `outputs/`. Use `--outputs` on the CLI or sweep script to select another directory. Each run stores `events.jsonl`, `config.json` and container logs. `config.json` records the parsed config, including defaults.
+
+CPU and memory limits, subnet placement and additional bootstrap policies need implementation before use. Keep your parameter sweeps in experiment-owned tooling.
