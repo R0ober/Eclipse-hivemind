@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventType(StrEnum):
+    DHT_SNAPSHOT = "dht_snapshot"
     NODE_STARTED = "node_started"
     RESOURCE_SAMPLE = "resource_sample"
     TRAINING_METRICS = "training_metrics"

@@ -346,3 +346,23 @@ def wait_for_start_barrier(
         if time.monotonic() >= deadline:
             raise StartBarrierTimeout(barrier)
         time.sleep(poll_interval)
+
+
+def send_dht_snapshot(
+    *, aggregator_endpoint: str, experiment_id: str, node_id: str,
+    node_type: str, node_index: int, tick: int, tick_kind: str, snapshot: dict,
+    timeout: float = 5.0,
+) -> dict:
+    """Report a point-in-time DHT neighbourhood independently of averaging.
+
+    Peer pairs retain their DHTID and PeerID; analysis resolves the latter through
+    node_started events. `tick` is the reporting node's own counter and `tick_kind`
+    says what it counts, because an observer's ticks and a training node's
+    local optimizer epochs are not the same clock.
+    """
+    return _send_event(
+        aggregator_endpoint=aggregator_endpoint, experiment_id=experiment_id,
+        node_id=node_id, node_type=node_type, node_index=node_index,
+        event_type="dht_snapshot", data={**snapshot, "tick": tick, "tick_kind": tick_kind},
+        timeout=timeout,
+    )

@@ -15,6 +15,7 @@ from hivemind.optim.grad_averager import GradientAverager
 
 from shared import averaging_members, averaging_watch, client
 from shared.dht import resolved_dht_id, start_dht
+from shared.topology import TICK_LOCAL_EPOCH, report_dht_snapshot
 
 
 NUM_CLASSES = 4
@@ -117,6 +118,11 @@ def train_and_report(
         step = 0
         epoch = optimizer.local_epoch
         # Baseline before the first step, so every round has a point to improve on.
+        # Capture the starting routing view before any optimizer steps.
+        report_dht_snapshot(
+            dht, aggregator_endpoint=aggregator_endpoint, identity=identity,
+            tick=epoch, tick_kind=TICK_LOCAL_EPOCH,
+        )
         report_eval(step=0, round=epoch)
         while optimizer.local_epoch < rounds:
             step += 1
@@ -167,6 +173,11 @@ def train_and_report(
                     group_size=observation["group_size"],
                     duration_seconds=observation["duration_seconds"],
                     group_members=optimizer.pop_group_members(),
+                )
+                # This view belongs to the current local epoch, after the previous round.
+                report_dht_snapshot(
+                    dht, aggregator_endpoint=aggregator_endpoint, identity=identity,
+                    tick=optimizer.local_epoch, tick_kind=TICK_LOCAL_EPOCH,
                 )
                 report_eval(step=step, round=optimizer.local_epoch)
                 epoch = optimizer.local_epoch
