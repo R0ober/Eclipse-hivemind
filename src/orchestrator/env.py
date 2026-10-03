@@ -45,7 +45,7 @@ def build_node_env(
         "NODE_TYPE": node_type_name,
         "NODE_INDEX": str(node_index),
         "NODE_SEED": str(derive_node_seed(config.experiment.seed, node_id)),
-        "AGGREGATOR_ENDPOINT": str(config.aggregator.endpoint),  # AnyUrl -> str
+        "LOGGER_ENDPOINT": str(config.logger.endpoint),  # AnyUrl -> str
         "INITIAL_PEERS": " ".join(initial_peers),
     }
     if identity_path is not None:

@@ -1,1 +1,1 @@
-"""Honest node type: joins the DHT and reports its lifecycle to the aggregator."""
+"""Reverse-gradient node: trains and reports its lifecycle to the logger."""

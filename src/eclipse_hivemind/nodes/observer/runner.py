@@ -11,7 +11,7 @@ from shared.dht import resolved_dht_id, start_dht
 from shared.topology import TICK_OBSERVATION, report_dht_snapshot
 
 
-def observe_dht_on_timer(dht, aggregator_endpoint: str, identity: dict, settings: dict, ticks: int) -> None:
+def observe_dht_on_timer(dht, logger_endpoint: str, identity: dict, settings: dict, ticks: int) -> None:
     """Report a fixed number of DHT observations at the configured interval.
 
     Take the first snapshot immediately, then wait snapshot_interval_seconds
@@ -25,7 +25,7 @@ def observe_dht_on_timer(dht, aggregator_endpoint: str, identity: dict, settings
     for tick in range(ticks):
         snapshot = report_dht_snapshot(
             dht,
-            aggregator_endpoint=aggregator_endpoint,
+            logger_endpoint=logger_endpoint,
             identity=identity,
             tick=tick,
             tick_kind=TICK_OBSERVATION,
@@ -49,7 +49,7 @@ def main() -> None:
     report, emit the completion marker the harness expects. Always shut down
     the DHT when observation ends, a request fails, or a stop signal arrives.
     """
-    endpoint = os.environ["AGGREGATOR_ENDPOINT"]
+    endpoint = os.environ["LOGGER_ENDPOINT"]
     identity = {"experiment_id": os.environ["EXPERIMENT_ID"], "node_id": os.environ["NODE_ID"],
                 "node_type": os.environ["NODE_TYPE"], "node_index": int(os.environ["NODE_INDEX"])}
     settings = {
@@ -70,15 +70,15 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     dht = start_dht()
     try:
-        client.send_node_started(aggregator_endpoint=endpoint, **identity,
+        client.send_node_started(logger_endpoint=endpoint, **identity,
                                 hivemind_address=str(dht.get_visible_maddrs()[0]),
                                 settings=settings, dht_id=resolved_dht_id(dht))
-        client.wait_for_start_barrier(aggregator_endpoint=endpoint,
+        client.wait_for_start_barrier(logger_endpoint=endpoint,
                                      experiment_id=identity["experiment_id"],
                                      node_id=identity["node_id"], timeout=settings["start_barrier_timeout"])
         observe_dht_on_timer(dht, endpoint, identity, settings, ticks)
         # The harness uses this completion marker for every node task.
-        print("TRAINING_COMPLETE=1", flush=True)
+        print("NODE_COMPLETE=1", flush=True)
     finally:
         dht.shutdown()
 

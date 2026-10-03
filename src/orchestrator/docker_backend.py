@@ -59,7 +59,7 @@ class DockerBackend(ContainerBackend):
         deadline = time.monotonic() + timeout
 
         while time.monotonic() < deadline:
-            logs = container.logs(tail=100)
+            logs = container.logs()
             text = logs.decode(errors="replace") if isinstance(logs, bytes) else str(logs)
             for line in text.splitlines():
                 if pattern in line:
@@ -74,6 +74,11 @@ class DockerBackend(ContainerBackend):
         raise TimeoutError(
             f"Timed out waiting for '{pattern}' in container {container_id}"
         )
+
+    def container_logs(self, container_id: str) -> str:
+        """Read the full container log before the harness removes the container."""
+        logs = self._client.containers.get(container_id).logs()
+        return logs.decode(errors="replace") if isinstance(logs, bytes) else str(logs)
 
     def stop(self, container_id: str) -> None:
         self._client.containers.get(container_id).stop()

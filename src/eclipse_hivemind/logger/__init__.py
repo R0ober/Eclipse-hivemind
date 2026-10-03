@@ -1,4 +1,4 @@
-"""Aggregator service for collecting experiment events."""
+"""Logger service for collecting experiment events."""
 
 from .app import app, create_app
 

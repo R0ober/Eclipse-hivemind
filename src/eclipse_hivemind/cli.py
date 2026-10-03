@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 
 from .config import ConfigError, parse_config_file
 from orchestrator.docker_backend import DockerBackend
@@ -14,6 +15,7 @@ def main() -> None:
         action="store_true",
         help="Use Alpine test nodes that emit fake Hivemind addresses",
     )
+    p.add_argument("--outputs", type=Path, default=Path("outputs"), help="Directory for run events and container logs")
     args = p.parse_args()
 
     try:
@@ -37,12 +39,10 @@ def main() -> None:
             config,
             DockerBackend(),
             fake_nodes=args.fake_nodes,
-        ) as (run_id, network_id, aggregator_id, nodes):
-            # Machine-readable and on its own line: a sweep parses this to map a run
-            # back to the config and seed that produced it.
-            print(f"RUN_ID={run_id}", flush=True)
+            outputs=args.outputs,
+        ) as (run_id, network_id, logger_id, nodes):
             print(f"{'Docker Network:':<20}{network_id}")
-            print(f"{'Aggregator:':<20}{aggregator_id}")
+            print(f"{'Logger:':<20}{logger_id}")
             for node in nodes:
                 role = "seed" if node["is_seed"] else "peer"
                 print(f"{node['node_id']:<20}{role:<6}{node['maddr'] or ''}")

@@ -16,14 +16,14 @@ TICK_LOCAL_EPOCH = "local_epoch"
 def report_dht_snapshot(
     dht: hivemind.DHT,
     *,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     identity: dict,
     tick: int,
     tick_kind: str,
     target_dht_id: str | None = None,
     k_nearest: int = 20,
 ) -> dict:
-    """Capture this node's current DHT view and send it to the aggregator.
+    """Capture this node's current DHT view and send it to the logger.
 
     Include the routing-table peers and, when a target DHTID is supplied, the
     nearest peers to that target. Return the reported snapshot so the caller
@@ -37,7 +37,7 @@ def report_dht_snapshot(
     """
     snapshot = routing_snapshot(dht, target_dht_id, k_nearest)
     client.send_dht_snapshot(
-        aggregator_endpoint=aggregator_endpoint,
+        logger_endpoint=logger_endpoint,
         **identity,
         tick=tick,
         tick_kind=tick_kind,

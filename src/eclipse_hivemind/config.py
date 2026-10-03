@@ -24,11 +24,12 @@ class BootstrapPolicy(str, Enum):
     FULL = "full"
 
 class Experiment(BaseModel):
-    name: str =Field(min_length=1)  
-    seed: StrictInt    
-    rounds: StrictInt = Field(gt=0)  
+    name: str =Field(min_length=1)
+    seed: StrictInt
+    rounds: StrictInt = Field(gt=0)
+    node_timeout_seconds: float = Field(default=3600, gt=0, allow_inf_nan=False)
 
-class Aggregator(BaseModel):
+class Logger(BaseModel):
     endpoint: AnyUrl | IPvAnyAddress
 
 
@@ -43,8 +44,8 @@ class Bootstrap(BaseModel):
 
 
 class NodeType(BaseModel):
-    count: StrictInt =Field(ge=0)       
-    image: str  =Field(min_length=1)     
+    count: StrictInt =Field(ge=0)
+    image: str  =Field(min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -66,12 +67,12 @@ class ExperimentConfig(BaseModel):
     schema_version: Literal[1]
 
     experiment: Experiment
-    aggregator: Aggregator
+    logger: Logger
     node_types: dict[str, NodeType]
-    bootstrap: Bootstrap = Field(default_factory=Bootstrap)  
+    bootstrap: Bootstrap = Field(default_factory=Bootstrap)
     startup: Startup = Field(default_factory=Startup)
 
-# Runs before validation of fields above  
+# Runs before validation of fields above
     @model_validator(mode="before")
     @classmethod
     def _default_seed_node_type(cls, data: Any) -> Any:
@@ -98,7 +99,7 @@ class ExperimentConfig(BaseModel):
 
         return data
 
-# Runs after validation 
+# Runs after validation
     @model_validator(mode="after")
     def _check_semantics(self) -> "ExperimentConfig":
         if self.total_nodes() == 0:
@@ -117,16 +118,27 @@ class ExperimentConfig(BaseModel):
                 f"for node_type '{seed_node_type}' ({available_count})"
             )
 
+        scheduled_types: set[str] = set()
+        phase_names: set[str] = set()
         for phase in self.startup.phases:
-            unknown_types = set(phase.node_types) - self.node_types.keys()
-            if unknown_types:
-                raise ValueError(
-                    f"startup phase '{phase.name}' references unknown node types: "
-                    f"{sorted(unknown_types)}"
-                )
+            if phase.name in phase_names:
+                raise ValueError(f"startup phase name {phase.name!r} is repeated")
+            phase_names.add(phase.name)
+            for name in phase.node_types:
+                if name not in self.node_types:
+                    raise ValueError(f"startup phase {phase.name!r} references unknown node type {name!r}")
+                if name in scheduled_types:
+                    raise ValueError(f"node type {name!r} appears more than once in startup phases")
+                scheduled_types.add(name)
+        if self.startup.phases:
+            missing = self.node_types_with_nodes().keys() - scheduled_types
+            if missing:
+                raise ValueError(f"startup phases omit active node types: {sorted(missing)}")
+            if seed_node_type not in self.startup.phases[0].node_types:
+                raise ValueError("bootstrap seed node type must belong to the first startup phase")
 
         return self
-    
+
     def total_nodes(self) -> int:
         return sum(nt.count for nt in self.node_types.values())
 
@@ -137,7 +149,7 @@ class ExperimentConfig(BaseModel):
 def parse_config(text: str) -> ExperimentConfig:
     """Full pipeline: text -> validated ExperimentConfig, or raises ConfigError."""
     raw = load_yaml(text)  # layer 1
-    try: 
+    try:
         return ExperimentConfig.model_validate(raw)
     except ValidationError as e:
         raise ConfigValidationError(f"Invalid configuration:\n{e}") from e

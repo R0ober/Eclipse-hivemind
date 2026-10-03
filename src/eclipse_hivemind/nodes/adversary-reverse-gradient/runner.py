@@ -65,7 +65,7 @@ def evaluate(
 
 def train_and_report(
     dht: hivemind.DHT,
-    aggregator_endpoint: str,
+    logger_endpoint: str,
     identity: dict,
     settings: dict,
     model: torch.nn.Module,
@@ -107,7 +107,7 @@ def train_and_report(
             model, eval_features, eval_labels
         )
         client.send_eval_metrics(
-            aggregator_endpoint=aggregator_endpoint,
+            logger_endpoint=logger_endpoint,
             **identity,
             step=step,
             round=round,
@@ -123,7 +123,7 @@ def train_and_report(
         # Baseline before the first step, so every round has a point to improve on.
         # Capture the starting routing view before any optimizer steps.
         report_dht_snapshot(
-            dht, aggregator_endpoint=aggregator_endpoint, identity=identity,
+            dht, logger_endpoint=logger_endpoint, identity=identity,
             tick=epoch, tick_kind=TICK_LOCAL_EPOCH,
         )
         report_eval(step=0, round=epoch)
@@ -143,7 +143,7 @@ def train_and_report(
 
             batch_accuracy = (logits.argmax(dim=1) == labels).float().mean().item()
             client.send_training_metrics(
-                aggregator_endpoint=aggregator_endpoint,
+                logger_endpoint=logger_endpoint,
                 **identity,
                 step=step,
                 round=optimizer.local_epoch,
@@ -162,14 +162,14 @@ def train_and_report(
                 observation = averaging_watch.interpret(watcher.take())
                 if observation["started_at"] is not None:
                     client.send_averaging_started(
-                        aggregator_endpoint=aggregator_endpoint,
+                        logger_endpoint=logger_endpoint,
                         **identity,
                         step=step,
                         round=epoch,
                         occurred_at=datetime.fromtimestamp(observation["started_at"], timezone.utc),
                     )
                 client.send_averaging_completed(
-                    aggregator_endpoint=aggregator_endpoint,
+                    logger_endpoint=logger_endpoint,
                     **identity,
                     step=step,
                     round=epoch,
@@ -183,7 +183,7 @@ def train_and_report(
                 )
                 # This view belongs to the current local epoch, after the previous round.
                 report_dht_snapshot(
-                    dht, aggregator_endpoint=aggregator_endpoint, identity=identity,
+                    dht, logger_endpoint=logger_endpoint, identity=identity,
                     tick=optimizer.local_epoch, tick_kind=TICK_LOCAL_EPOCH,
                 )
                 report_eval(step=step, round=optimizer.local_epoch)
@@ -195,7 +195,7 @@ def train_and_report(
 
 
 def main() -> None:
-    aggregator_endpoint = os.environ["AGGREGATOR_ENDPOINT"]
+    logger_endpoint = os.environ["LOGGER_ENDPOINT"]
     identity = {
         "experiment_id": os.environ["EXPERIMENT_ID"],
         "node_id": os.environ["NODE_ID"],
@@ -251,17 +251,17 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     try:
         acknowledgement = client.send_node_started(
-            aggregator_endpoint=aggregator_endpoint,
+            logger_endpoint=logger_endpoint,
             **identity,
             hivemind_address=str(dht.get_visible_maddrs()[0]),
             settings=settings,
             model_fingerprint=digest.hexdigest()[:16],
             dht_id=resolved_dht_id(dht),
         )
-        print(f"AGGREGATOR_ACK={acknowledgement}", flush=True)
+        print(f"LOGGER_ACK={acknowledgement}", flush=True)
         try:
             barrier = client.wait_for_start_barrier(
-                aggregator_endpoint=aggregator_endpoint,
+                logger_endpoint=logger_endpoint,
                 experiment_id=identity["experiment_id"],
                 node_id=identity["node_id"],
                 timeout=settings["start_barrier_timeout"],
@@ -270,14 +270,14 @@ def main() -> None:
         except client.StartBarrierTimeout as error:
             print(f"START_BARRIER_TIMEOUT {error}", flush=True)
             client.send_node_error(
-                aggregator_endpoint=aggregator_endpoint,
+                logger_endpoint=logger_endpoint,
                 **identity,
                 error_code="start_barrier_timeout",
                 message=str(error),
                 recoverable=True,
             )
-        train_and_report(dht, aggregator_endpoint, identity, settings, model, experiment_seed, node_seed, rounds)
-        print("TRAINING_COMPLETE=1", flush=True)
+        train_and_report(dht, logger_endpoint, identity, settings, model, experiment_seed, node_seed, rounds)
+        print("NODE_COMPLETE=1", flush=True)
     finally:
         dht.shutdown()
 
