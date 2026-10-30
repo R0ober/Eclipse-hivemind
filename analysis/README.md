@@ -37,3 +37,8 @@ nbstripout --install
 ```
 
 Your working notebook keeps its figures. Git stores the notebook without rendered outputs. Generate exported figures from the tracked CSVs.
+
+
+## Controlled victim-group comparison
+
+Read [experiment-2-with-eclipse/README.md](experiment-2-with-eclipse/README.md) for the 0–4 adversary comparison using the same designated victim in both conditions. Final tables, membership audits and selected PDFs are stored separately from the repeated ordinary-matchmaking results. The project continues to use `analysis.ipynb` as its notebook.
