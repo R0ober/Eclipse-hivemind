@@ -1,17 +1,23 @@
 schema_version: 1
 
 experiment:
-  name: baseline-averaging
-  seed: 1
-  rounds: 50
+  name: honest-baseline
+  seed: 7
+  rounds: 20
 
 logger:
   endpoint: http://logger:8080
 
 bootstrap:
-  policy: full
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
 
 node_types:
   normal:
     count: 3
-    image: alpine:3.20
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      target_batch_size: 192
