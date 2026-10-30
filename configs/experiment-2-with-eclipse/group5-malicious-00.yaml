@@ -1,0 +1,43 @@
+# With eclipse: experimentally imposed gradient-group composition.
+# This is not an implementation of malicious discovery or admission.
+schema_version: 1
+experiment:
+  name: exp2-with-eclipse-malicious-00
+  seed: 7
+  rounds: 20
+logger:
+  endpoint: http://logger:8080
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+node_types:
+  normal:
+    count: 10
+    image: eclipse-hivemind-node-honest-enforced:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5
+      enforced_adversaries: 0
+  adversarial:
+    count: 0
+    image: eclipse-adversary-reverse-gradient-enforced:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5
+      enforced_adversaries: 0
