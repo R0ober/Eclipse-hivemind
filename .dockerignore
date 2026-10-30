@@ -1,0 +1,11 @@
+.git
+.venv*
+**/__pycache__
+**/.DS_Store
+data
+outputs
+archives
+figures
+local-notes
+.idea
+.env*

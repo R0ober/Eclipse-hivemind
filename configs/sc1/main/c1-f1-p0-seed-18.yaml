@@ -1,0 +1,126 @@
+schema_version: 1
+experiment:
+  name: groupkey-eclipse-factorial-1
+  seed: 18
+  rounds: 12
+logger:
+  endpoint: http://logger:8080
+  image: eclipse-hivemind-logger:publication
+services:
+  attack-coordinator:
+    image: eclipse-hivemind-coordinator:publication
+    ready_log: ATTACK_COORDINATOR_READY=1
+    environment:
+      COORDINATION_DB_PATH: /outputs/coordination.sqlite3
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+node_types:
+  normal:
+    count: 14
+    image: eclipse-hivemind-sc1:publication
+    parameters:
+      factorial_role: normal
+      factor_coordination: true
+      factor_filtering: true
+      factor_poisoning: false
+      focal_victim: false
+      storage_behavior: standard
+      averager_behavior: standard
+      averager_role: honest
+      dht_placement: random
+      target_batch_size: 1280
+      batch_size: 32
+      learning_rate: 0.05
+      eval_size: 4096
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 4
+      min_group_size: 2
+      num_replicas: 5
+      storage_poll_seconds: 1
+      start_barrier_timeout: 180
+  victim:
+    count: 1
+    image: eclipse-hivemind-sc1:publication
+    parameters:
+      factorial_role: victim
+      factor_coordination: true
+      factor_filtering: true
+      factor_poisoning: false
+      focal_victim: true
+      storage_behavior: standard
+      averager_behavior: standard
+      averager_role: honest
+      dht_placement: random
+      target_batch_size: 1280
+      batch_size: 32
+      learning_rate: 0.05
+      eval_size: 4096
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 4
+      min_group_size: 2
+      num_replicas: 5
+      storage_poll_seconds: 1
+      start_barrier_timeout: 180
+  recruiter:
+    count: 3
+    image: eclipse-hivemind-sc1:publication
+    parameters:
+      factorial_role: recruiter
+      factor_coordination: true
+      factor_filtering: true
+      factor_poisoning: false
+      focal_victim: false
+      storage_behavior: filter
+      averager_behavior: standard
+      averager_role: controlled
+      dht_placement: targeted
+      target_batch_size: 1280
+      batch_size: 32
+      learning_rate: 0.05
+      eval_size: 4096
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 4
+      min_group_size: 2
+      num_replicas: 5
+      storage_poll_seconds: 1
+      start_barrier_timeout: 180
+      dht_id_offset: 1
+      coordination_role: recruiter
+      coordinator_endpoint: http://attack-coordinator:8090
+  support:
+    count: 2
+    image: eclipse-hivemind-sc1:publication
+    parameters:
+      factorial_role: support
+      factor_coordination: true
+      factor_filtering: true
+      factor_poisoning: false
+      focal_victim: false
+      storage_behavior: filter
+      averager_behavior: standard
+      averager_role: honest
+      dht_placement: targeted
+      target_batch_size: 1280
+      batch_size: 32
+      learning_rate: 0.05
+      eval_size: 4096
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1
+      target_group_size: 4
+      min_group_size: 2
+      num_replicas: 5
+      storage_poll_seconds: 1
+      start_barrier_timeout: 180
+      dht_id_offset: 4
+      coordination_role: support
+      coordinator_endpoint: http://attack-coordinator:8090

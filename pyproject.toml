@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eclipse-hivemind"
+version = "1.0.0"
+description = "Storage Control factorial experiments in Hivemind"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["PyYAML==6.0.3", "pydantic==2.13.5", "docker==7.2.0", "fastapi==0.142.2"]
+
+[project.optional-dependencies]
+analysis = ["numpy==2.5.3", "matplotlib==3.11.2"]
+
+[project.scripts]
+eclipse-hivemind = "eclipse_hivemind.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
