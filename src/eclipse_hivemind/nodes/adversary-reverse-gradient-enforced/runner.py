@@ -143,7 +143,7 @@ def train_and_report(
             loss = torch.nn.functional.cross_entropy(logits, labels)
             optimizer.zero_grad()
             loss.backward()
-            ## reverse gradient adversary logic 
+            ## reverse gradient adversary logic
             for parameter in model.parameters():
                 if parameter.grad is not None:
                     parameter.grad.neg_()
