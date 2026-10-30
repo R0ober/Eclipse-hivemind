@@ -1,0 +1,7 @@
+adversarial,runs,all_honest_fixed_runs,any_honest_fixed_runs,median_run_retention,median_mean_longest_sequence,invalid_observations,missing_expected_indices
+0,30,20,20,1.0,20.0,15,1
+1,30,13,14,0.9323081800887761,18.444444444444443,31,8
+2,30,18,19,1.0,20.0,4,0
+3,30,10,11,0.631578947368421,12.0,8,3
+4,30,24,24,1.0,20.0,3,0
+6,30,22,22,1.0,20.0,3,0
