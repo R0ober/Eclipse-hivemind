@@ -1,0 +1,41 @@
+# Ordinary matchmaking control: ten peers, groups of five.
+# Only the honest/adversarial counts differ from the existing Experiment 2 cells.
+schema_version: 1
+experiment:
+  name: exp2-group5-malicious-01
+  seed: 7
+  rounds: 20
+logger:
+  endpoint: http://logger:8080
+bootstrap:
+  seeds:
+    node_type: normal
+    count: 1
+  policy: seed_only
+node_types:
+  normal:
+    count: 9
+    image: eclipse-hivemind-node-honest:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5
+  adversarial:
+    count: 1
+    image: eclipse-adversary-reverse-gradient:dev
+    parameters:
+      batch_size: 32
+      learning_rate: 0.05
+      target_batch_size: 1280
+      matchmaking_time: 10
+      averaging_timeout: 30
+      step_delay_seconds: 1.0
+      eval_size: 4096
+      target_group_size: 5
+      min_group_size: 5

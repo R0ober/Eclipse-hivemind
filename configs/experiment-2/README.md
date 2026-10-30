@@ -1,6 +1,6 @@
 # Experiment 2: averaging group size
 
-Run the gradient-reversal attack with ten peers and groups of five. The four configs use zero, two, four or six malicious peers.
+Run the gradient-reversal attack with ten peers and groups of five. The original four configs use zero, two, four or six malicious peers. The ordinary-matchmaking extension adds one and three malicious peers, completing the 0–4 comparison. See [ordinary-matchmaking-design.md](ordinary-matchmaking-design.md) for the design and persistence measurements.
 
 Each config sets `target_group_size` and `min_group_size` to 5. A round averages with five peers or falls back to local gradients. Check averaging success before comparing losses. See ADR 0016 in docs/decisions/.
 
